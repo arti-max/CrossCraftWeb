@@ -1,7 +1,7 @@
-import { AABB } from "../phys/AABB";
-import type { Player } from "../Player";
-import type { Tessellator } from "../render/Tessellator";
-import type { Level } from "./Level";
+import { AABB } from "../../phys/AABB";
+import type { Player } from "../../Player";
+import type { Tessellator } from "../../render/Tessellator";
+import type { Level } from "../Level";
 
 
 export class Tile {

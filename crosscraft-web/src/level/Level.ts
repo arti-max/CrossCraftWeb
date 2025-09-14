@@ -1,6 +1,6 @@
 import { AABB } from "../phys/AABB";
 import type { LevelListener } from "./LevelListener";
-import { Tile } from "./Tile";
+import { Tile } from "./tile/Tile";
 
 
 
@@ -27,48 +27,7 @@ export class Level {
                 for (var z = 0; z < height; z++) {
                     var index: number = (y * this.height + z) * this.width + x;
 
-                    this.blocks[index] = 1;
-                }
-            }
-        }
-
-        for (let i = 0; i < 10000; i++) {
-            const caveSize = Math.floor(Math.random() * 7) + 1;
-            const caveX = Math.floor(Math.random() * this.width);
-            const caveY = Math.floor(Math.random() * this.depth);
-            const caveZ = Math.floor(Math.random() * this.height);
-            
-            // Grow cave
-            for (let radius = 0; radius < caveSize; radius++) {
-                for (let sphere = 0; sphere < 1000; sphere++) {
-                    const offsetX = Math.floor(Math.random() * radius * 2 - radius);
-                    const offsetY = Math.floor(Math.random() * radius * 2 - radius);
-                    const offsetZ = Math.floor(Math.random() * radius * 2 - radius);
-                    
-                    // Sphere shape
-                    const distance = Math.pow(offsetX, 2) + Math.pow(offsetY, 2) + Math.pow(offsetZ, 2);
-                    if (distance > radius * radius) {
-                        continue;
-                    }
-                    
-                    const tileX = caveX + offsetX;
-                    const tileY = caveY + offsetY;
-                    const tileZ = caveZ + offsetZ;
-                    
-                    // Calculate index from x, y and z
-                    const index = (tileY * this.height + tileZ) * this.width + tileX;
-                    
-                    // Check if tile is out of level
-                    if (index >= 0 && index < this.blocks.length) {
-                        // Border of level
-                        if (tileX > 0 && tileY > 0 && tileZ > 0 &&
-                            tileX < this.width - 1 && tileY < this.depth && tileZ < this.height - 1) {
-                            // Only remove if there was a block there
-                            if (this.blocks[index] !== 0) {
-                                this.blocks[index] = 0; // Air block
-                            }
-                        }
-                    }
+                    this.blocks[index] = ((y <= depth * 2 / 3) ? 1 : 0);;
                 }
             }
         }

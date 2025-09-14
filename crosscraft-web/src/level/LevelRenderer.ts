@@ -8,7 +8,7 @@ import { DistanceSorter } from "./DistanceSorter";
 import { DirtyChunkSorter } from "./DirtyChunkSorter";
 import { Tessellator } from "../render/Tessellator";
 import type { AABB } from "../phys/AABB";
-import { Tile } from "./Tile";
+import { Tile } from "./tile/Tile";
 import type { HitResult } from "../HitResult";
 import type { LevelListener } from "./LevelListener";
 

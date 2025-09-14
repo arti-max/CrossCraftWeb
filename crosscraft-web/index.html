@@ -8,41 +8,37 @@
             margin: 0;
             padding: 0;
             width: 100%;
-            height: 100vh; /* Используем vh для полной высоты экрана */
+            height: 100vh;
             overflow: hidden;
         }
 
         body {
-            /* Центрируем содержимое по вертикали и горизонтали с помощью Flexbox */
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
 
-            /* Устанавливаем фон */
-            background-image: url('/rock.png'); /* Путь к вашей текстуре камня */
-            background-repeat: repeat; /* Замостить текстуру */
+            background-image: url('/dirt.png');
+            background-repeat: repeat;
+            background-size: 64px 64px; 
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges; 
             
-            /* Стили для текста подсказок */
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: white;
-            text-shadow: 2px 2px 2px;
+            text-shadow: 2px 2px 2px #000;
         }
 
-        /* Контейнер для апплета */
         #app {
-            /* Сдвигаем апплет немного выше центра, добавляя отступ снизу */
             margin-bottom: 40px; 
             border: 2px solid #555;
             box-shadow: 0 0 20px rgba(0,0,0,0.7);
         }
 
-        /* Холст должен занимать весь контейнер */
         canvas {
             display: block;
         }
         
-        /* Контейнер с подсказками по управлению */
         #controls {
             text-align: left;
             padding: 15px;
@@ -63,39 +59,36 @@
 
         #controls li kbd {
             display: inline-block;
-            width: 90px; /* Фиксированная ширина для выравнивания */
+            width: 90px;
             font-weight: bold;
             font-family: monospace;
         }
 
-        /* Скрываем контейнер с текстурами */
         #texture-atlases {
             display: none;
         }
     </style>
 </head>
 <body>
-    <!-- Контейнер для "апплета" с заданными размерами width и height -->
     <div id="app" width="854" height="480"></div>
 
-    <!-- Подсказки по управлению -->
     <div id="controls">
         <ul>
             <li><kbd>Right click</kbd> - Destroy block</li>
             <li><kbd>Left click</kbd> - Place block</li>
             <li><kbd>R</kbd> - Respawn</li>
             <li><kbd>F</kbd> - Toggle draw distance</li>
+            <li><kbd>G</kbd> - Spawn mob</li>
             <li><kbd>WASD</kbd> - Movement</li>
             <li><kbd>SPACE</kbd> - Jump</li>
         </ul>
     </div>
 
-    <!-- === Контейнер для предзагрузки текстур === -->
     <div id="texture-atlases">
-        <img id="/terrain.png" src="/terrain.png" />
+        <img id="/terrain.png" src="terrain.png" />
+        <img id="/char.png" src="char.png" />
     </div>
 
-    <!-- Запускаем основной скрипт -->
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

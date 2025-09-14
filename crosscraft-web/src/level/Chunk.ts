@@ -2,7 +2,7 @@ import { GL11, GL } from "../../lib/GL11/GL11";
 import { AABB } from "../phys/AABB";
 import { Tessellator } from '../render/Tessellator';
 import type { Level } from "./Level";
-import { Tile } from "./Tile";
+import { Tile } from "./tile/Tile";
 import type { Player } from "../Player";
 
 export class Chunk {
@@ -55,22 +55,16 @@ export class Chunk {
     }
 
     public rebuildLayer(layer: number) {
-        // if (Chunk.rebuiltThisFrame == 2) {
-        //     return;
-        // }
-        // Chunk.rebuiltThisFrame++;
-
         GL11.glNewList(this.lists + layer, GL.COMPILE);
         GL11.glEnable(GL.TEXTURE_2D);
-        // GL11.glBindTexture(GL.TEXTURE_2D, Chunk.TEXTURE);
         Chunk.TESSELLATOR.begin();
 
         for (var x = this.minX; x < this.maxX; ++x) {
             for (var y = this.minY; y < this.maxY; ++y) {
                 for (var z = this.minZ; z < this.maxZ; ++z) {
                     if (this.level.isTile(x, y, z)) {
-                        // var id = (y != this.level.depth * 2 / 3) ? 1 : 0;
-                        if (y > this.level.depth - 7 && this.level.getBrightness(x, y, z) == 1.0) {
+                        var id = (y != Math.floor(this.level.depth * 2 / 3)) ? 1 : 0;
+                        if (id == 0) {
                             Tile.grass.render(Chunk.TESSELLATOR, this.level, layer, x, y, z);
                         } else {
                             Tile.rock.render(Chunk.TESSELLATOR, this.level, layer, x, y, z);
@@ -81,7 +75,6 @@ export class Chunk {
         }
 
         Chunk.TESSELLATOR.end();
-        // GL11.glDisable(GL.TEXTURE_2D);
         GL11.glEndList();
     }
 

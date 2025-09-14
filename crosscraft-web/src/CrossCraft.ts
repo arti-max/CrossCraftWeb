@@ -12,9 +12,10 @@ import { Mouse } from '../lib/IO/Mouse';
 import { Chunk } from "./level/Chunk";
 import { Textures } from "./Textures";
 import { Frustum } from "./render/Frustum";
-import { Tile } from "./level/Tile";
+import { Tile } from "./level/tile/Tile";
 import { Tessellator } from "./render/Tessellator";
 import { HitResult } from "./HitResult";
+import { Zombie } from "./character/Zombie";
 
 
 export class CrossCraft {
@@ -41,6 +42,7 @@ export class CrossCraft {
     private lb: FloatBuffer = BufferUtils.createFloatBuffer(16);
     private hitResult: HitResult | null = null;
     private editMode: number = 0;
+    private zombies: Array<Zombie> = new Array<Zombie>();
 
     constructor(parent: HTMLCanvasElement, width: number, height: number, fullscrean: boolean) {
         this.parent = parent;
@@ -71,7 +73,7 @@ export class CrossCraft {
 
         GL11.glEnable(GL.TEXTURE_2D);
         GL11.glShadeModel(GL.SMOOTH);
-        GL11.glClearColor(fr, fg, fb, 0.0);
+        GL11.glClearColor(fr, fg, fb, 1.0);
         GL11.glClearDepth(1.0);
         GL11.glEnable(GL.DEPTH_TEST);
         GL11.glDepthFunc(GL.LEQUAL);
@@ -91,6 +93,11 @@ export class CrossCraft {
         this.levelRenderer = new LevelRenderer(this.level, this.textures);
         this.player = new Player(this.level);
 
+        for (var i = 0; i < 20; ++ i) {
+            var zombie: Zombie = new Zombie(this.level, 128.0, 0.0, 129.0);
+            zombie.resetPosition()
+            this.zombies.push(zombie);
+        }
 
         this.checkGlError("Post startup");
     }
@@ -115,6 +122,14 @@ export class CrossCraft {
             if (Keyboard.getEventKey() == 33) {
                 this.levelRenderer.toggleDrawDistance();
             }
+            if (Keyboard.getEventKey() == 34) {
+                console.log("Spawned zombie at player");
+                this.zombies.push(new Zombie(this.level, this.player.x, this.player.y, this.player.z));
+            }
+        }
+
+        for (var zombie of this.zombies) {
+            zombie.tick();
         }
 
         this.player.tick();
@@ -241,6 +256,9 @@ export class CrossCraft {
         this.setupFog(0);
         GL11.glEnable(GL.FOG);
         this.levelRenderer.render(this.player, 0);
+        for (var zombie of this.zombies) {
+            zombie.render(partialTicks, this.textures);
+        }
         this.checkGlError("Rendered level");
         this.setupFog(1);
         this.levelRenderer.render(this.player, 1);
@@ -289,16 +307,16 @@ export class CrossCraft {
         var wc: number = screenWidth / 2;
         var hc: number = screenHeight / 2;
         GL11.glColor4f(1.0, 1.0, 1.0, 1.0);
-        // t.begin();
-        // t.vertex((wc + 1), (hc - 4), 0);
-        // t.vertex((wc - 0), (hc - 4), 0);
-        // t.vertex((wc - 0), (hc + 5), 0);
-        // t.vertex((wc + 1), (hc + 5), 0);
-        // t.vertex((wc + 5), (hc - 0), 0);
-        // t.vertex((wc - 4), (hc - 0), 0);
-        // t.vertex((wc - 4), (hc + 1), 0);
-        // t.vertex((wc + 5), (hc + 1), 0);
-        // t.end();
+        t.begin();
+        t.vertex((wc + 1), (hc - 4), 0);
+        t.vertex((wc - 0), (hc - 4), 0);
+        t.vertex((wc - 0), (hc + 5), 0);
+        t.vertex((wc + 1), (hc + 5), 0);
+        t.vertex((wc + 5), (hc - 0), 0);
+        t.vertex((wc - 4), (hc - 0), 0);
+        t.vertex((wc - 4), (hc + 1), 0);
+        t.vertex((wc + 5), (hc + 1), 0);
+        t.end();
         this.checkGlError("GUI: Draw crosshair");
     }
 
