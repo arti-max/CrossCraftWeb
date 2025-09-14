@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Простой тест Color Picking</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #222;
+            color: #fff;
+        }
+        #gameContainer {
+            border: 2px solid #444;
+            margin: 20px 0;
+            width: 800px;
+            height: 600px;
+        }
+        #debugInfo {
+            background: #333;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        button {
+            background: #555;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Простой тест Color Picking</h1>
+    
+    <div>
+        <button onclick="testPicking()">Тест Picking</button>
+        <button onclick="renderFrame()">Показать куб</button>
+        <button onclick="rotateCube()">Повернуть куб</button>
+        <button onclick="clearDebug()">Очистить отладку</button>
+    </div>
+    
+    <div id="gameContainer"></div>
+    
+    <div id="debugInfo"></div>
+
+    <script type="module">
+        import { GL11, GL } from './lib/GL11/GL11.js';
+        import { BufferUtils } from './lib/GL11/BufferUtils.js';
+        import { IntBuffer } from './lib/GL11/IntBuffer.js';
+        import { FloatBuffer } from './lib/GL11/FloatBuffer.js';
+        import { Tessellator } from './src/render/Tessellator.js';
+        
+        let canvas = null;
+        let debugDiv = null;
+        let rotationAngle = 0; // Угол поворота куба
+        
+        // Перехватываем console.log для отображения отладочной информации
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        function addDebugMessage(type, ...args) {
+            if (debugDiv) {
+                const timestamp = new Date().toLocaleTimeString();
+                const message = args.map(arg => 
+                    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+                ).join(' ');
+                
+                debugDiv.textContent += `[${timestamp}] ${type}: ${message}\n`;
+                debugDiv.scrollTop = debugDiv.scrollHeight;
+            }
+        }
+        
+        console.log = (...args) => {
+            originalLog(...args);
+            addDebugMessage('LOG', ...args);
+        };
+        
+        console.error = (...args) => {
+            originalError(...args);
+            addDebugMessage('ERROR', ...args);
+        };
+        
+        console.warn = (...args) => {
+            originalWarn(...args);
+            addDebugMessage('WARN', ...args);
+        };
+        
+        // Простой тест picking
+        function initSimpleTest() {
+            const container = document.getElementById('gameContainer');
+            debugDiv = document.getElementById('debugInfo');
+            
+            canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 600;
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            container.appendChild(canvas);
+            
+            // Инициализируем GL11
+            GL11.init(canvas);
+            
+            // Настраиваем базовые параметры
+            GL11.glEnable(GL.TEXTURE_2D);
+            GL11.glClearColor(0.2, 0.3, 0.8, 1.0);
+            GL11.glEnable(GL.DEPTH_TEST);
+            GL11.glDepthFunc(GL.LEQUAL);
+            GL11.glViewport(0, 0, canvas.width, canvas.height);
+            
+            // Рендерим начальный кадр для визуализации
+            renderFrame();
+            
+            console.log('Простой тест инициализирован. Canvas:', canvas.width, 'x', canvas.height);
+        }
+        
+        // Функция для рендеринга кадра
+        function renderFrame() {
+            // Настраиваем камеру с перспективной проекцией
+            GL11.glMatrixMode(GL.PROJECTION);
+            GL11.glLoadIdentity();
+            
+            // Перспективная проекция для 3D
+            const fovy = 45; // Угол обзора
+            const aspect = canvas.width / canvas.height;
+            const near = 0.1;
+            const far = 100.0;
+            
+            // Создаем перспективную матрицу
+            const f = Math.tan(Math.PI * 0.5 - 0.5 * fovy * Math.PI / 180);
+            const rangeInv = 1.0 / (near - far);
+            
+            const perspectiveMatrix = new Float32Array([
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (near + far) * rangeInv, -1,
+                0, 0, near * far * rangeInv * 2, 0
+            ]);
+            
+            GL11.glLoadMatrixf(perspectiveMatrix);
+            
+            GL11.glMatrixMode(GL.MODELVIEW);
+            GL11.glLoadIdentity();
+            
+            // Позиционируем камеру
+            GL11.glTranslatef(0, 0, -5); // Отодвигаем камеру назад
+            
+            // Поворачиваем куб
+            GL11.glRotatef(rotationAngle, 0, 1, 0); // Поворот вокруг оси Y
+            
+            // Очищаем экран
+            GL11.glClear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+            
+            // Рисуем 3D куб
+            drawCube();
+        }
+        
+        // Функция для рисования куба
+        function drawCube() {
+            const t = Tessellator.instance;
+            
+            // Передняя грань (красная)
+            t.begin();
+            t.color(1.0, 0.0, 0.0);
+            t.vertex(-1, -1, 1);
+            t.vertex(1, -1, 1);
+            t.vertex(1, 1, 1);
+            t.vertex(-1, 1, 1);
+            t.end();
+            
+            // Задняя грань (зеленая)
+            t.begin();
+            t.color(0.0, 1.0, 0.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(-1, 1, -1);
+            t.vertex(1, 1, -1);
+            t.vertex(1, -1, -1);
+            t.end();
+            
+            // Верхняя грань (синяя)
+            t.begin();
+            t.color(0.0, 0.0, 1.0);
+            t.vertex(-1, 1, -1);
+            t.vertex(-1, 1, 1);
+            t.vertex(1, 1, 1);
+            t.vertex(1, 1, -1);
+            t.end();
+            
+            // Нижняя грань (желтая)
+            t.begin();
+            t.color(1.0, 1.0, 0.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(1, -1, -1);
+            t.vertex(1, -1, 1);
+            t.vertex(-1, -1, 1);
+            t.end();
+            
+            // Правая грань (пурпурная)
+            t.begin();
+            t.color(1.0, 0.0, 1.0);
+            t.vertex(1, -1, -1);
+            t.vertex(1, 1, -1);
+            t.vertex(1, 1, 1);
+            t.vertex(1, -1, 1);
+            t.end();
+            
+            // Левая грань (голубая)
+            t.begin();
+            t.color(0.0, 1.0, 1.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(-1, -1, 1);
+            t.vertex(-1, 1, 1);
+            t.vertex(-1, 1, -1);
+            t.end();
+        }
+        
+        // Функция для рисования куба с picking
+        function drawCubeForPicking() {
+            const t = Tessellator.instance;
+            
+            // Передняя грань (красная) - ID 1
+            GL11.glPushName(1);
+            t.begin();
+            t.color(1.0, 0.0, 0.0);
+            t.vertex(-1, -1, 1);
+            t.vertex(1, -1, 1);
+            t.vertex(1, 1, 1);
+            t.vertex(-1, 1, 1);
+            t.end();
+            GL11.glPopName();
+            
+            // Задняя грань (зеленая) - ID 2
+            GL11.glPushName(2);
+            t.begin();
+            t.color(0.0, 1.0, 0.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(-1, 1, -1);
+            t.vertex(1, 1, -1);
+            t.vertex(1, -1, -1);
+            t.end();
+            GL11.glPopName();
+            
+            // Верхняя грань (синяя) - ID 3
+            GL11.glPushName(3);
+            t.begin();
+            t.color(0.0, 0.0, 1.0);
+            t.vertex(-1, 1, -1);
+            t.vertex(-1, 1, 1);
+            t.vertex(1, 1, 1);
+            t.vertex(1, 1, -1);
+            t.end();
+            GL11.glPopName();
+            
+            // Нижняя грань (желтая) - ID 4
+            GL11.glPushName(4);
+            t.begin();
+            t.color(1.0, 1.0, 0.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(1, -1, -1);
+            t.vertex(1, -1, 1);
+            t.vertex(-1, -1, 1);
+            t.end();
+            GL11.glPopName();
+            
+            // Правая грань (пурпурная) - ID 5
+            GL11.glPushName(5);
+            t.begin();
+            t.color(1.0, 0.0, 1.0);
+            t.vertex(1, -1, -1);
+            t.vertex(1, 1, -1);
+            t.vertex(1, 1, 1);
+            t.vertex(1, -1, 1);
+            t.end();
+            GL11.glPopName();
+            
+            // Левая грань (голубая) - ID 6
+            GL11.glPushName(6);
+            t.begin();
+            t.color(0.0, 1.0, 1.0);
+            t.vertex(-1, -1, -1);
+            t.vertex(-1, -1, 1);
+            t.vertex(-1, 1, 1);
+            t.vertex(-1, 1, -1);
+            t.end();
+            GL11.glPopName();
+        }
+        
+        // Тест picking
+        window.testPicking = function() {
+            if (!canvas) {
+                console.error('Canvas не инициализирован!');
+                return;
+            }
+            
+            console.log('=== НАЧАЛО ПРОСТОГО ТЕСТА PICKING ===');
+            
+            try {
+                // Создаем буфер для результатов
+                const selectBuffer = BufferUtils.createIntBuffer(1000);
+                
+                // ИСПРАВЛЕНИЕ: Устанавливаем координаты picking ПЕРЕД началом SELECT режима
+                GL11.setupPickCamera(canvas.width / 2, canvas.height / 2);
+                console.log(`PICK_DEBUG: Pick coordinates set to center: (${canvas.width / 2}, ${canvas.height / 2})`);
+                
+                // Настраиваем picking
+                GL11.glSelectBuffer(selectBuffer);
+                GL11.glRenderMode(GL.SELECT);
+                
+                // Настраиваем камеру для picking (такая же как в renderFrame)
+                GL11.glMatrixMode(GL.PROJECTION);
+                GL11.glLoadIdentity();
+                
+                // Перспективная проекция для 3D
+                const fovy = 45;
+                const aspect = canvas.width / canvas.height;
+                const near = 0.1;
+                const far = 100.0;
+                
+                const f = Math.tan(Math.PI * 0.5 - 0.5 * fovy * Math.PI / 180);
+                const rangeInv = 1.0 / (near - far);
+                
+                const perspectiveMatrix = new Float32Array([
+                    f / aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (near + far) * rangeInv, -1,
+                    0, 0, near * far * rangeInv * 2, 0
+                ]);
+                
+                GL11.glLoadMatrixf(perspectiveMatrix);
+                
+                GL11.glMatrixMode(GL.MODELVIEW);
+                GL11.glLoadIdentity();
+                
+                // Позиционируем камеру
+                GL11.glTranslatef(0, 0, -5);
+                
+                // Поворачиваем куб (такой же угол как в renderFrame)
+                GL11.glRotatef(rotationAngle, 0, 1, 0);
+                
+                // Очищаем экран
+                GL11.glClear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+                
+                // Инициализируем name stack
+                GL11.glInitNames();
+                GL11.glPushName(1); // ID куба
+                
+                // Рисуем 3D куб с разными именами для каждой грани
+                drawCubeForPicking();
+                
+                GL11.glPopName();
+                
+                // Завершаем picking
+                const hits = GL11.glRenderMode(GL.RENDER);
+                
+                console.log(`Picking завершен. Hits: ${hits}`);
+                
+                if (hits > 0) {
+                    selectBuffer.flip();
+                    const nameCount = selectBuffer.get();
+                    const minZ = selectBuffer.get();
+                    const maxZ = selectBuffer.get();
+                    const names = [];
+                    for (let i = 0; i < nameCount; i++) {
+                        names.push(selectBuffer.get());
+                    }
+                    
+                    // Определяем какая грань была выбрана
+                    const faceNames = ['', 'Передняя (красная)', 'Задняя (зеленая)', 'Верхняя (синяя)', 'Нижняя (желтая)', 'Правая (пурпурная)', 'Левая (голубая)'];
+                    const cubeId = names[0];
+                    const faceId = names[1];
+                    const faceName = faceNames[faceId] || `Неизвестная грань (ID: ${faceId})`;
+                    
+                    console.log(`🎯 Найден объект:`);
+                    console.log(`   Куб ID: ${cubeId}`);
+                    console.log(`   Грань: ${faceName}`);
+                    console.log(`   Names: [${names.join(', ')}]`);
+                    console.log(`   Z-диапазон: ${minZ} - ${maxZ}`);
+                } else {
+                    console.log('❌ Объекты не найдены');
+                }
+                
+            } catch (error) {
+                console.error('Ошибка в тесте picking:', error);
+            }
+            
+            console.log('=== КОНЕЦ ТЕСТА PICKING ===');
+        };
+        
+        // Очистка отладки
+        window.clearDebug = function() {
+            if (debugDiv) {
+                debugDiv.textContent = '';
+            }
+        };
+        
+        // Делаем renderFrame доступной глобально
+        window.renderFrame = renderFrame;
+        
+        // Функция поворота куба
+        window.rotateCube = function() {
+            rotationAngle += 45; // Поворачиваем на 45 градусов
+            if (rotationAngle >= 360) {
+                rotationAngle = 0;
+            }
+            console.log(`Куб повернут на ${rotationAngle} градусов`);
+            renderFrame(); // Перерисовываем куб
+        };
+        
+        // Запуск при загрузке страницы
+        document.addEventListener('DOMContentLoaded', initSimpleTest);
+    </script>
+</body>
+</html>
