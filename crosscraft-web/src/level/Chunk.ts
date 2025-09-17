@@ -2,7 +2,7 @@ import { GL11, GL } from "../../lib/GL11/GL11";
 import { AABB } from "../phys/AABB";
 import { Tessellator } from '../render/Tessellator';
 import type { Level } from "./Level";
-import { Tile } from "./tile/Tile";
+import { Tile } from "./tile/TileDefenitions";
 import type { Player } from "../Player";
 
 export class Chunk {
@@ -63,11 +63,10 @@ export class Chunk {
             for (var y = this.minY; y < this.maxY; ++y) {
                 for (var z = this.minZ; z < this.maxZ; ++z) {
                     if (this.level.isTile(x, y, z)) {
-                        var id = (y != Math.floor(this.level.depth * 2 / 3)) ? 1 : 0;
-                        if (id == 0) {
-                            Tile.grass.render(Chunk.TESSELLATOR, this.level, layer, x, y, z);
-                        } else {
-                            Tile.rock.render(Chunk.TESSELLATOR, this.level, layer, x, y, z);
+                        var id = this.level.getTile(x, y, z);
+
+                        if (id > 0) {
+                            Tile.tiles[id].render(Chunk.TESSELLATOR, this.level, layer, x, y, z);
                         }
                     }
                 }

@@ -1,4 +1,7 @@
 import { CrossCraft } from "./CrossCraft";
+import { User } from "./User";
+
+const urlParams = new URLSearchParams(window.location.search);
 
 export class CrossCraftApplet {
     private canvas: HTMLCanvasElement;
@@ -24,6 +27,15 @@ export class CrossCraftApplet {
         console.log(`CrossCraftApplet: Canvas created ${width}x${height}`);
         
         this.cc = new CrossCraft(this.canvas, width, height, false);
+        if (urlParams.get('username') != null && urlParams.get('sessionid') != null) {
+            console.log("Game started with username " + urlParams.get('username') + " and sessionid " + urlParams.get('sessionid'));
+            this.cc.user = new User(urlParams.get('username') as string, urlParams.get('sessionid') as string);
+        }
+        if (urlParams.get("loadmap_user") != null && urlParams.get("loadmap_id") != null) {
+            this.cc.loadMapUser = urlParams.get("loadmap_user") as string;
+            this.cc.loadMapId = urlParams.get("loadmap_id") as unknown as number;
+        }
+        // this.cc.user = new User("arti" as string, "123");
         this.cc.appletMode = true;
     }
     

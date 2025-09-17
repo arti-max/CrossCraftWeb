@@ -24,7 +24,8 @@ export class LevelRenderer implements LevelListener {
     private zChunks!: number;
     private textures: Textures;
     private drawDistance: number = 2;
-    
+    private surroundLists: number;
+
     // Кешированная позиция для сортировки
     private lX: number = 0.0;
     private lY: number = 0.0; 
@@ -33,9 +34,8 @@ export class LevelRenderer implements LevelListener {
     constructor(level: Level, textures: Textures) {
         this.level = level;
         this.textures = textures;
-        
         level.addListener(this);
-        
+        this.surroundLists = GL11.glGenLists(2);
         this.allChanged();
     }
 
@@ -65,7 +65,6 @@ export class LevelRenderer implements LevelListener {
                     let y1 = (y + 1) * LevelRenderer.CHUNK_SIZE;
                     let z1 = (z + 1) * LevelRenderer.CHUNK_SIZE;
                     
-                    // Ограничиваем размеры уровня
                     if (x1 > this.level.width) x1 = this.level.width;
                     if (y1 > this.level.depth) y1 = this.level.depth;
                     if (z1 > this.level.height) z1 = this.level.height;
@@ -78,6 +77,13 @@ export class LevelRenderer implements LevelListener {
                 }
             }
         }
+
+        GL11.glNewList(this.surroundLists + 0, GL.COMPILE);
+        this.compileSurroundingGround();
+        GL11.glEndList();
+        GL11.glNewList(this.surroundLists + 1, GL.COMPILE);
+        this.compileSurroundingWater();
+        GL11.glEndList();
 
         for (const chunk of this.chunks) {
             chunk.reset();
@@ -173,6 +179,117 @@ export class LevelRenderer implements LevelListener {
                 }
             }
         }
+    }
+
+    public renderSurroundingGround(): void {
+        GL11.glCallList(this.surroundLists + 0);
+    }
+
+    public compileSurroundingGround(): void {
+        GL11.glEnable(GL.TEXTURE_2D);
+        // GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/rock2.png", GL.NEAREST));
+        GL11.glColor4f(1.0, 1.0, 1.0, 1.0);
+
+        const t: Tessellator = Tessellator.instance;
+        const y = this.level.getGroundLevel() - 2.0;
+        let s = 128;
+        if (s > this.level.width) s = this.level.width;
+        if (s > this.level.height) s = this.level.height;
+        const d = 5;
+
+        // --- Наружный "обод" вокруг уровня (точно как в Java) ----
+        t.begin();
+        for (let xx = -s * d; xx < this.level.width + s * d; xx += s) {
+            for (let zz = -s * d; zz < this.level.height + s * d; zz += s) {
+                let yy = y;
+                if (
+                    xx >= 0 && zz >= 0 &&
+                    xx < this.level.width && zz < this.level.height
+                ) {
+                    yy = 0.0; // внутренний уровень вровень с землей
+                }
+                t.vertexUV(xx, yy, zz + s, 0.0, s);
+                t.vertexUV(xx + s, yy, zz + s, s, s);
+                t.vertexUV(xx + s, yy, zz, s, 0.0);
+                t.vertexUV(xx, yy, zz, 0.0, 0.0);
+            }
+        }
+        t.end();
+
+        // --- Передняя и задняя стороны ----
+        // GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/rock2.png", GL.NEAREST));
+        GL11.glColor3f(0.8, 0.8, 0.8);
+        t.begin();
+        for (let xx = 0; xx < this.level.width; xx += s) {
+            // Передняя грань (z = 0)
+            t.vertexUV(xx, 0.0, 0.0, 0.0, 0.0);
+            t.vertexUV(xx + s, 0.0, 0.0, s, 0.0);
+            t.vertexUV(xx + s, y, 0.0, s, y);
+            t.vertexUV(xx, y, 0.0, 0.0, y);
+            // Задняя грань (z = level.height)
+            t.vertexUV(xx, y, this.level.height, 0.0, y);
+            t.vertexUV(xx + s, y, this.level.height, s, y);
+            t.vertexUV(xx + s, 0.0, this.level.height, s, 0.0);
+            t.vertexUV(xx, 0.0, this.level.height, 0.0, 0.0);
+        }
+        t.end();
+
+        // --- Левая и правая стороны ----
+        GL11.glColor3f(0.6, 0.6, 0.6);
+        t.begin();
+        for (let zz = 0; zz < this.level.height; zz += s) {
+            // Левая грань (x = 0)
+            t.vertexUV(0.0, y, zz, 0.0, 0.0);
+            t.vertexUV(0.0, y, zz + s, s, 0.0);
+            t.vertexUV(0.0, 0.0, zz + s, s, y);
+            t.vertexUV(0.0, 0.0, zz, 0.0, y);
+            // Правая грань (x = level.width)
+            t.vertexUV(this.level.width, 0.0, zz, 0.0, y);
+            t.vertexUV(this.level.width, 0.0, zz + s, s, y);
+            t.vertexUV(this.level.width, y, zz + s, s, 0.0);
+            t.vertexUV(this.level.width, y, zz, 0.0, 0.0);
+        }
+        t.end();
+
+        GL11.glDisable(GL.BLEND);
+        GL11.glDisable(GL.TEXTURE_2D);
+    }
+
+    public renderSurroundingWater(): void {
+        GL11.glCallList(this.surroundLists + 1);
+    }
+
+    public compileSurroundingWater(): void {
+        GL11.glEnable(GL.TEXTURE_2D);
+        GL11.glColor3f(1.0, 1.0, 1.0);
+        var y = this.level.getGroundLevel();
+        GL11.glEnable(GL.BLEND);
+        GL11.glBlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
+        const t: Tessellator = Tessellator.instance;
+        let s = 128;
+        if (s > this.level.width) s = this.level.width;
+        if (s > this.level.height) s = this.level.height;
+        const d = 5;
+        t.begin();
+
+        for (var xx = -s * d; xx < this.level.width + s * d; xx += s) {
+            for (var zz = -s * d; zz < this.level.height + s * d; zz += s) {
+                var yy: number = y - 0.1;
+                if (xx < 0 || zz < 0 || xx >= this.level.width || zz >= this.level.height) {
+                    t.vertexUV((xx + 0), yy, (zz + s), 0.0, s);
+                    t.vertexUV((xx + s), yy, (zz + s), s, s);
+                    t.vertexUV((xx + s), yy, (zz + 0), s, 0.0);
+                    t.vertexUV((xx + 0), yy, (zz + 0), 0.0, 0.0);
+                    t.vertexUV((xx + 0), yy, (zz + 0), 0.0, 0.0);
+                    t.vertexUV((xx + s), yy, (zz + 0), s, 0.0);
+                    t.vertexUV((xx + s), yy, (zz + s), s, s);
+                    t.vertexUV((xx + 0), yy, (zz + s), 0.0, s);
+                }
+            }
+        }
+
+        t.end();
+        GL11.glDisable(GL.BLEND);
     }
 
     public pick(player: Player, frustum: Frustum): void {

@@ -24,7 +24,7 @@ export class Zombie extends Entity {
         super.tick();
 
         if (this.y < -100.0) {
-            this.resetPosition();
+            this.remove();
         }
 
         this.rotation += this.rotationMotionFactor;
@@ -74,7 +74,7 @@ export class Zombie extends Entity {
         var size: number = 7.0 / 120.0;
         GL11.glScalef(size, size, size);
 
-        var offsetY: number = Math.abs(Math.sin(time * 2.0 / 3.0)) * 5.0;
+        var offsetY: number = Math.abs(Math.sin(time * 2.0 / 3.0)) * 5.0 + 24.5;
         GL11.glTranslatef(0.0, -offsetY, 0.0);
 
         GL11.glRotatef(toDegrees(this.rotation) + 180, 0.0, 1.0, 0.0);

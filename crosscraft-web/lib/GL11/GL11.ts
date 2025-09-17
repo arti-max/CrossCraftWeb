@@ -263,12 +263,14 @@ class GL11 {
 
     // Данные для компиляции текущего списка
     private compilingList: {
-        geometryBuffer: number[];
-        currentTexture: WebGLTexture | null;
-        currentMode: number;
-        format: number;
-        hasTexture: boolean;
-        hasColor: boolean;
+        geometries: Array<{
+            buffer: number[];
+            texture: WebGLTexture | null;
+            mode: number;
+            format: number;
+            hasTexture: boolean;
+            hasColor: boolean;
+        }>;
         stateCommands: GLCommand[];
         immediateMode: number | null;
         immediateVertices: number[];
@@ -276,6 +278,11 @@ class GL11 {
         immediateHasTexture: boolean;
         currentColor: [number, number, number, number];
         currentTexCoord: [number, number];
+        // Текущие состояния для новых геометрий
+        currentTexture: WebGLTexture | null;
+        currentFormat: number;
+        currentHasTexture: boolean;
+        currentHasColor: boolean;
     } | null = null;
 
     private fogState = {
@@ -328,7 +335,7 @@ class GL11 {
 ]);
 
     constructor(canvas: HTMLCanvasElement) {
-        const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+        const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true, alpha: false,premultipliedAlpha: false});
         if (!gl) throw new Error("WebGL not supported.");
         this.gl = gl;
         this.mainShaderProgram = this.createProgram(vsSource, fsSource);
@@ -364,35 +371,34 @@ class GL11 {
             this.lastError = GL.INVALID_OPERATION;
             return;
         }
-        
+
         if (list === 0) {
             console.error("GL_INVALID_VALUE: list was zero");
             this.lastError = GL.INVALID_VALUE;
             return;
         }
-        
+
         if (mode !== GL.COMPILE && mode !== GL.COMPILE_AND_EXECUTE) {
             console.error("GL_INVALID_ENUM: mode was not an accepted value");
             this.lastError = GL.INVALID_ENUM;
             return;
         }
-        
+
         this.currentListId = list;
         this.listMode = mode;
         this.compilingList = {
-            geometryBuffer: [],
-            currentTexture: null,
-            currentMode: GL.TRIANGLES,
-            format: GL.V3F,
-            hasTexture: false,
-            hasColor: false,
+            geometries: [],
             stateCommands: [],
             immediateMode: null,
             immediateVertices: [],
             immediateHasColor: false,
             immediateHasTexture: false,
             currentColor: [1, 1, 1, 1],
-            currentTexCoord: [0, 0]
+            currentTexCoord: [0, 0],
+            currentTexture: null,
+            currentFormat: GL.V3F,
+            currentHasTexture: false,
+            currentHasColor: false
         };
     }
 
@@ -422,80 +428,93 @@ class GL11 {
     }
 
     private compileGeometry(): CompiledGeometry[] {
-        if (!this.compilingList || this.compilingList.geometryBuffer.length === 0) {
+        if (!this.compilingList || this.compilingList.geometries.length === 0) {
             return [];
         }
 
-        let format = GL.V3F;
-        let stride = 3;
-        
-        if (this.compilingList.hasTexture && this.compilingList.hasColor) {
-            format = GL.T2F_C3F_V3F;
-            stride = 2 + 3 + 3;
-        } else if (this.compilingList.hasTexture) {
-            format = GL.T2F_V3F;
-            stride = 2 + 3;
-        } else if (this.compilingList.hasColor) {
-            format = GL.C3F_V3F;
-            stride = 3 + 3;
+        const compiledGeometries: CompiledGeometry[] = [];
+        const gl = this.gl;
+
+        for (const geom of this.compilingList.geometries) {
+            const vbo = gl.createBuffer();
+            if (!vbo) {
+                console.error("Failed to create VBO for geometry");
+                continue;
+            }
+
+            const vertexData = new Float32Array(geom.buffer);
+            gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+            gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
+
+            const stride = this.getStrideFromFormat(geom.format);
+            const vertexCount = geom.buffer.length / stride;
+
+            compiledGeometries.push({
+                vbo: vbo,
+                vertexCount: vertexCount,
+                mode: geom.mode,
+                format: geom.format,
+                texture: geom.texture,
+                hasTexture: geom.hasTexture,
+                hasColor: geom.hasColor
+            });
+
+            // console.log(`Compiled geometry: ${vertexCount} vertices, mode: ${geom.mode}, format: ${geom.format}`);
         }
 
-        const gl = this.gl;
-        const vbo = gl.createBuffer();
-        if (!vbo) throw new Error("Failed to create VBO");
-
-        const vertexData = new Float32Array(this.compilingList.geometryBuffer);
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-        return [{
-            vbo: vbo,
-            vertexCount: this.compilingList.geometryBuffer.length / stride,
-            mode: this.compilingList.currentMode,
-            format: format,
-            texture: this.compilingList.currentTexture,
-            hasTexture: this.compilingList.hasTexture,
-            hasColor: this.compilingList.hasColor
-        }];
+        return compiledGeometries;
     }
 
     private flushImmediateGeometry(): void {
         if (!this.compilingList || this.compilingList.immediateVertices.length === 0) return;
-
+        
         let vertices = this.compilingList.immediateVertices;
         let mode = this.compilingList.immediateMode!;
         
+        // Определяем формат на основе флагов
+        let format = GL.V3F;
+        if (this.compilingList.immediateHasTexture && this.compilingList.immediateHasColor) {
+            format = GL.T2F_C3F_V3F;
+        } else if (this.compilingList.immediateHasTexture) {
+            format = GL.T2F_V3F;
+        } else if (this.compilingList.immediateHasColor) {
+            format = GL.C3F_V3F;
+        }
+        
         if (mode === GL.QUADS) {
-            vertices = this.convertQuadsToTriangles(vertices);
+            vertices = this.convertQuadsToTriangles(vertices, format); // Передаем формат
             mode = GL.TRIANGLES;
         }
 
-        this.compilingList.geometryBuffer.push(...vertices);
-        this.compilingList.currentMode = mode;
-        
+        // Создаем отдельную геометрию для immediate mode
+        this.compilingList.geometries.push({
+            buffer: vertices,
+            texture: this.compilingList.currentTexture,
+            mode: mode,
+            format: format,
+            hasTexture: this.compilingList.immediateHasTexture,
+            hasColor: this.compilingList.immediateHasColor
+        });
+
         this.compilingList.immediateVertices = [];
         this.compilingList.immediateMode = null;
     }
 
-    private convertQuadsToTriangles(quadData: number[]): number[] {
+    private convertQuadsToTriangles(quadData: number[], format: number = GL.V3F): number[] {
         const triangleData: number[] = [];
         
-        // Определяем stride на основе формата данных
-        let stride = 3; // Базовые вершины (x, y, z)
-        
-        if (this.compilingList) {
-            if (this.compilingList.hasTexture && this.compilingList.hasColor) {
-                stride = 2 + 3 + 3; // texture(2) + color(3) + vertex(3)
-            } else if (this.compilingList.hasTexture) {
-                stride = 2 + 3; // texture(2) + vertex(3) 
-            } else if (this.compilingList.hasColor) {
-                stride = 3 + 3; // color(3) + vertex(3)
-            }
-        }
+        // Определяем stride на основе переданного формата
+        let stride = this.getStrideFromFormat(format);
         
         const verticesPerQuad = 4;
         const quadsCount = quadData.length / (stride * verticesPerQuad);
+
+        // Проверяем, что данные корректны
+        if (quadsCount !== Math.floor(quadsCount)) {
+            console.warn(`convertQuadsToTriangles: Invalid quad data length. Expected multiple of ${stride * verticesPerQuad}, got ${quadData.length}`);
+            return quadData; // Возвращаем исходные данные, если что-то не так
+        }
 
         for (let i = 0; i < quadsCount; i++) {
             const quadStart = i * stride * verticesPerQuad;
@@ -547,7 +566,7 @@ class GL11 {
 
     private handleGeometryCommand(func: keyof GL11, args: any[]): boolean {
         if (!this.compilingList) return false;
-
+        
         switch (func) {
             case 'glBegin':
                 this.compilingList.immediateMode = args[0];
@@ -563,11 +582,9 @@ class GL11 {
             case 'glVertex3f':
                 if (this.compilingList.immediateMode !== null) {
                     const vertex: number[] = [];
-                    
                     if (this.compilingList.immediateHasTexture) {
                         vertex.push(...this.compilingList.currentTexCoord);
                     }
-                    
                     if (this.compilingList.immediateHasColor) {
                         vertex.push(
                             this.compilingList.currentColor[0],
@@ -575,7 +592,6 @@ class GL11 {
                             this.compilingList.currentColor[2]
                         );
                     }
-                    
                     vertex.push(args[0], args[1], args[2]);
                     this.compilingList.immediateVertices.push(...vertex);
                 }
@@ -584,21 +600,21 @@ class GL11 {
             case 'glColor3f':
                 this.compilingList.currentColor = [args[0], args[1], args[2], 1.0];
                 this.compilingList.immediateHasColor = true;
-                this.compilingList.hasColor = true;
+                this.compilingList.currentHasColor = true;
                 break;
                 
             case 'glColor4f':
                 this.compilingList.currentColor = [args[0], args[1], args[2], args[3]];
                 this.compilingList.immediateHasColor = true;
-                this.compilingList.hasColor = true;
+                this.compilingList.currentHasColor = true;
                 break;
                 
             case 'glTexCoord2f':
                 this.compilingList.currentTexCoord = [args[0], args[1]];
                 this.compilingList.immediateHasTexture = true;
-                this.compilingList.hasTexture = true;
+                this.compilingList.currentHasTexture = true;
                 break;
-
+                
             case 'glDrawArrays':
                 const mode = args[0];
                 const first = args[1];
@@ -607,19 +623,21 @@ class GL11 {
                 if (this.currentArrayData.buffer) {
                     const format = this.currentArrayData.format;
                     const stride = this.getStrideFromFormat(format);
-                    
                     const startIndex = first * stride;
                     const endIndex = startIndex + (count * stride);
                     const vertexData = this.currentArrayData.buffer.slice(startIndex, endIndex);
                     
-                    this.compilingList.geometryBuffer.push(...Array.from(vertexData));
-                    this.compilingList.format = format;
+                    // Создаем новую геометрию для каждого glDrawArrays
+                    this.compilingList.geometries.push({
+                        buffer: Array.from(vertexData),
+                        texture: this.compilingList.currentTexture,
+                        mode: mode,
+                        format: format,
+                        hasTexture: this.compilingList.currentHasTexture || this.hasTextureInFormat(format),
+                        hasColor: this.compilingList.currentHasColor || this.hasColorInFormat(format)
+                    });
                     
-                    // ИСПРАВЛЕНИЕ: сохраняем оригинальный режим для правильной обработки в glCallList
-                    this.compilingList.currentMode = mode; // Сохраняем оригинальный GL_QUADS
-                    
-                    this.updateFormatFlags(format);
-                    // console.log(`Cached ${count} vertices from glDrawArrays for Display List`);
+                    // console.log(`Added geometry ${this.compilingList.geometries.length} with ${count} vertices, mode: ${mode}, format: ${format}`);
                 }
                 break;
         }
@@ -627,8 +645,18 @@ class GL11 {
         if (this.listMode === GL.COMPILE_AND_EXECUTE) {
             return false;
         }
+        
         return true;
     }
+
+    private hasTextureInFormat(format: number): boolean {
+        return format === GL.T2F_V3F || format === GL.T2F_C3F_V3F;
+    }
+
+    private hasColorInFormat(format: number): boolean {
+        return format === GL.C3F_V3F || format === GL.T2F_C3F_V3F;
+    }
+
 
     private getStrideFromFormat(format: number): number {
         switch (format) {
@@ -655,23 +683,6 @@ class GL11 {
             default:
                 console.warn(`getVertexOffsetFromFormat: Unknown format ${format}`);
                 return 0;
-        }
-    }
-
-    private updateFormatFlags(format: number): void {
-        if (!this.compilingList) return;
-        
-        switch (format) {
-            case GL.T2F_C3F_V3F:
-                this.compilingList.hasTexture = true;
-                this.compilingList.hasColor = true;
-                break;
-            case GL.T2F_V3F:
-                this.compilingList.hasTexture = true;
-                break;
-            case GL.C3F_V3F:
-                this.compilingList.hasColor = true;
-                break;
         }
     }
 
@@ -1047,7 +1058,22 @@ class GL11 {
     public glViewport(x: number, y: number, width: number, height: number): void { if(this.recordCommand('glViewport', [x,y,width,height])) return; this.stateCache.viewport.set([x,y,width,height]); this.gl.viewport(x,y,width,height); }
     public glDepthFunc(func: number): void { if(this.recordCommand('glDepthFunc', [func])) return; this.gl.depthFunc(func); }
     public glBlendFunc(sfactor: number, dfactor: number): void { if(this.recordCommand('glBlendFunc', [sfactor,dfactor])) return; this.gl.blendFunc(sfactor,dfactor); }
-    public glBindTexture(target: number, texture: WebGLTexture | number | null): void { if (this.recordCommand('glBindTexture', [target, texture])) return; let webglTexture: WebGLTexture | null = null; if (typeof texture === 'number') { webglTexture = this.textureMap.get(texture) || null; } else { webglTexture = texture; } if (this.compilingList) { this.compilingList.currentTexture = webglTexture; } this.gl.bindTexture(target, webglTexture); }
+    public glBindTexture(target: number, texture: WebGLTexture | number | null): void {
+        if (this.recordCommand('glBindTexture', [target, texture])) return;
+        
+        let webglTexture: WebGLTexture | null = null;
+        if (typeof texture === 'number') {
+            webglTexture = this.textureMap.get(texture) || null;
+        } else {
+            webglTexture = texture;
+        }
+        
+        if (this.compilingList) {
+            this.compilingList.currentTexture = webglTexture;
+        }
+        
+        this.gl.bindTexture(target, webglTexture);
+    }
     public glMatrixMode(mode: number): void { if(this.recordCommand('glMatrixMode', [mode])) return; if (mode === GL.PROJECTION) this.currentMatrixStack = this.projectionMatrixStack; else if (mode === GL.MODELVIEW) this.currentMatrixStack = this.modelViewMatrixStack; }
     public glLoadIdentity(): void { if(this.recordCommand('glLoadIdentity', [])) return; this.currentMatrixStack.loadIdentity(); }
     public glPushMatrix(): void { if(this.recordCommand('glPushMatrix', [])) return; this.currentMatrixStack.push(); }

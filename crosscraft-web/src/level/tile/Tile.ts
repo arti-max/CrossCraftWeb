@@ -2,13 +2,20 @@ import { AABB } from "../../phys/AABB";
 import type { Player } from "../../Player";
 import type { Tessellator } from "../../render/Tessellator";
 import type { Level } from "../Level";
+import type { Random } from '../../../lib/UTIL/Random';
+import type { ParticleEngine } from "../../particle/ParticleManager";
+import { Particle } from "../../particle/Particle";
 
 
 export class Tile {
 
     public static tiles: Tile[] = new Array<Tile>(256);
-    public static grass: Tile = new Tile(1, 0);
-    public static rock: Tile = new Tile(2, 5);
+    public static rock: Tile;
+    public static grass: Tile;
+    public static dirt: Tile;
+    public static cobblestone: Tile;
+    public static wood: Tile;
+    public static bush: Tile;
 
     public textureId!: number;
     public readonly id: number;
@@ -45,7 +52,7 @@ export class Tile {
         }
     }
 
-    private getTexture(face: number): number {
+    protected getTexture(face: number): number {
         return this.textureId;
     }
 
@@ -191,11 +198,57 @@ export class Tile {
         }
     }
 
+    /**
+     * Called when a tile gets destroyed by the player
+     *
+     * @param level          The current level
+     * @param x              Tile x location
+     * @param y              Tile y location
+     * @param z              Tile z location
+     * @param particleEngine ParticleEngine to create the particles
+     */
+    public onDestroy(level: Level, x: number, y: number, z: number, engine: ParticleEngine): void {
+        var spread = 4;
+
+        for (var offsetX = 0; offsetX < spread; offsetX++) {
+            for (var offsetY = 0; offsetY < spread; offsetY++) {
+                for (var offsetZ = 0; offsetZ < spread; offsetZ++) {
+                    var targetX: number = x + (offsetX + 0.5) / spread;
+                    var targetY: number = y + (offsetY + 0.5) / spread;
+                    var targetZ: number = z + (offsetZ + 0.5) / spread;
+
+                    var motionX: number = targetX - x - 0.5;
+                    var motionY: number = targetY - y - 0.5;
+                    var motionZ: number = targetZ - z - 0.5;
+
+                    var particle: Particle = new Particle(level, targetX, targetY, targetZ, motionX, motionY, motionZ, this.textureId);
+                    engine.add(particle);
+                }
+            }
+        }
+    }
+
+    public tick(level: Level, x: number, y: number, z: number, random: Random) {
+        // No implementation
+    }
+
     public mayPick(): boolean {
         return true;
     }
 
+    public blocksLight(): boolean {
+        return true;
+    }
+
+    public isSolid(): boolean {
+        return true;
+    }
+
     public getTileAABB(x: number, y: number, z: number): AABB {
+        return new AABB(x, y, z, x+1, y+1, z+1);
+    }
+
+    public getAABB(x: number, y: number, z: number): AABB | null {
         return new AABB(x, y, z, x+1, y+1, z+1);
     }
 }

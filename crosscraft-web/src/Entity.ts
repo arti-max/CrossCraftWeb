@@ -21,9 +21,15 @@ export class Entity {
     public xRotation: number = 0;
     public yRotation: number = 0;
 
-    public onGround: boolean = false;
+    protected onGround: boolean = false;
+    protected heightOffset: number = 0;
 
     public boundingBox!: AABB;
+    protected boundingBoxWidth: number = 0.6;
+    protected boundingBoxHeight: number = 1.8;
+
+
+    public removed: boolean = false;
 
     constructor(level: Level) {
         this.level = level;
@@ -39,6 +45,10 @@ export class Entity {
         this.setPosition(x, y, z);
     }
 
+    public remove(): void {
+        this.removed = true;
+    }
+
     /**
      * Set the player to a specific location
      *
@@ -51,10 +61,15 @@ export class Entity {
         this.y = y;
         this.z = z;
 
-        var width: number = 0.3;
-        var height: number = 0.9;
+        var width: number = this.boundingBoxWidth / 2.0;
+        var height: number = this.boundingBoxHeight / 2.0;
 
         this.boundingBox = new AABB(x - width, y - height, z - width, x + width, y + height, z + width);
+    }
+
+    protected setSize(width: number, height: number): void {
+        this.boundingBoxWidth = width;
+        this.boundingBoxHeight = height;
     }
 
     /**
@@ -114,7 +129,7 @@ export class Entity {
         if (prevZ != z) this.motionZ = 0.0;
 
         this.x = (this.boundingBox.minX + this.boundingBox.maxX) / 2.0;
-        this.y = this.boundingBox.minY + 1.62
+        this.y = this.boundingBox.minY + this.heightOffset;
         this.z = (this.boundingBox.minZ + this.boundingBox.maxZ) / 2.0;
     }
 
@@ -139,6 +154,10 @@ export class Entity {
 
         this.motionX += x * cos - z * sin;
         this.motionZ += z * cos + x * sin;
+    }
+
+    public isLit(): boolean {
+        return this.level.isLit(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z));
     }
 }
 

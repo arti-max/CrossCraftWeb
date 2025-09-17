@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8" />
     <title>CrossCraft</title>
+    <link rel="preload" as="image" href="terrain.png">
+    <link rel="preload" as="image" href="char.png">
+    <link rel="preload" as="image" href="rock.png">
+    <link rel="preload" as="image" href="rock2.png">
+    <link rel="preload" as="image" href="dirt.png">
+    <link rel="preload" as="image" href="water.png">
     <style>
         body, html {
             margin: 0;
@@ -18,7 +24,8 @@
             justify-content: center;
             align-items: center;
 
-            background-image: url('/dirt.png');
+            background-color: #000;
+            background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)), url('/rock.png');
             background-repeat: repeat;
             background-size: 64px 64px; 
             image-rendering: pixelated;
@@ -71,24 +78,44 @@
 </head>
 <body>
     <div id="app" width="854" height="480"></div>
-
+    <div id="text">
+        <h2 id="nologin-warning" style="display:none;color:#ff4444;text-shadow: 2px 2px 2px #000;">You won't be able to save unless you log in.</h2>
+        <h4>About:</h4>
+        <a>CrossCraftWeb is being developed by arti.</a>
+        <hr>
+    </div>
     <div id="controls">
         <ul>
+            <li><kbd>1 - 4, 6</kbd> - Changing building block type</li>
             <li><kbd>Right click</kbd> - Destroy block</li>
             <li><kbd>Left click</kbd> - Place block</li>
             <li><kbd>R</kbd> - Respawn</li>
-            <li><kbd>F</kbd> - Toggle draw distance</li>
+            <li><kbd>F</kbd> - Toggle rendering distance</li>
             <li><kbd>G</kbd> - Spawn mob</li>
             <li><kbd>WASD</kbd> - Movement</li>
             <li><kbd>SPACE</kbd> - Jump</li>
+            <li><kbd>ESC</kbd> - Pause screen</li>
         </ul>
     </div>
 
     <div id="texture-atlases">
         <img id="/terrain.png" src="terrain.png" />
         <img id="/char.png" src="char.png" />
+        <img id="/default.png" src="default.png" />
+        <img id="/dirt.png" src="dirt.png" />
+        <img id="/rock.png" src="rock.png" />
+        <img id="/rock2.png" src="rock2.png" />
+        <img id="/water.png" src="water.png" />
     </div>
 
     <script type="module" src="/src/main.ts"></script>
+    <script>
+    function paramMissing(name) {
+        return ((new URLSearchParams(window.location.search)).get(name) === null);
+    }
+    if (paramMissing('sessionid') || paramMissing('username')) {
+        document.getElementById('nologin-warning').style.display = "block";
+    }
+    </script>
 </body>
 </html>

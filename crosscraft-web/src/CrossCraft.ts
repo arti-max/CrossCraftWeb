@@ -12,14 +12,23 @@ import { Mouse } from '../lib/IO/Mouse';
 import { Chunk } from "./level/Chunk";
 import { Textures } from "./Textures";
 import { Frustum } from "./render/Frustum";
-import { Tile } from "./level/tile/Tile";
+import { Tile } from "./level/tile/TileDefenitions";
 import { Tessellator } from "./render/Tessellator";
 import { HitResult } from "./HitResult";
 import { Zombie } from "./character/Zombie";
+import { User } from './User';
+import { ParticleEngine } from "./particle/ParticleManager";
+import { Font } from "./gui/Font";
+import type { Screen } from "./gui/Screen";
+import { PauseScreen } from "./gui/PauseScreen";
+import { LevelIO } from "./level/LevelIO";
+import type { LevelLoaderListener } from "./level/LevelLoaderListener";
+import { LevelGen } from "./level/levelgen/LevelGen";
 
 
-export class CrossCraft {
-    public static readonly VERSION_STRING: string = "0.0.1d";
+export class CrossCraft implements LevelLoaderListener {
+    public static readonly VERSION_STRING: string = "0.0.2a_03";
+    public readonly host: string = "crosscraftweb.ddns.net";
     public width: number;
     public height: number;
     public appletMode: boolean = false;
@@ -35,7 +44,7 @@ export class CrossCraft {
     private level!: Level;
     private levelRenderer!: LevelRenderer;
     private timer: Timer = new Timer(20.0);
-    private player!: Player;
+    public player!: Player;
     private textures!: Textures;
     private mouseGrabbed: boolean = false;
     private yMouseAxis: number = -1;
@@ -43,6 +52,18 @@ export class CrossCraft {
     private hitResult: HitResult | null = null;
     private editMode: number = 0;
     private zombies: Array<Zombie> = new Array<Zombie>();
+    public user: User = null as unknown as User;
+    private selectedTile: number = 1;
+    private particleEngine!: ParticleEngine;
+    private t!: Tessellator;
+    public font!: Font;
+    private screen: Screen = null as unknown as Screen;
+    private levelIo: LevelIO = new LevelIO(this);
+    private levelGen: LevelGen = new LevelGen(this);
+    private title: string = "";
+    public isLoading: boolean = false;
+    public loadMapUser: string = "";
+    public loadMapId: number = -1;
 
     constructor(parent: HTMLCanvasElement, width: number, height: number, fullscrean: boolean) {
         this.parent = parent;
@@ -66,8 +87,20 @@ export class CrossCraft {
         Mouse.create(this.parent);
 
         this.parent.addEventListener('click', () => {
-            Mouse.setGrabbed(true);
+            if (this.screen == null) {
+                Mouse.setGrabbed(true);
+            }
         });
+
+        document.addEventListener('pointerlockchange', () => {
+            // Если блокировка была снята (т.е. текущий элемент блокировки - не наш canvas)
+            // И при этом у нас не открыто никакое меню
+            // Это значит, что пользователь нажал ESC, чтобы выйти из игры.
+            if (document.pointerLockElement !== this.parent && this.screen === null) {
+                // Открываем меню паузы
+                this.setScreen(new PauseScreen());
+            }
+        }, false);
 
         this.checkGlError("Pre startup");
 
@@ -78,7 +111,7 @@ export class CrossCraft {
         GL11.glEnable(GL.DEPTH_TEST);
         GL11.glDepthFunc(GL.LEQUAL);
         GL11.glEnable(GL.ALPHA_TEST);
-        GL11.glAlphaFunc(GL.GREATER, 0.0);
+        GL11.glAlphaFunc(GL.GREATER, 0.5);
         GL11.glCullFace(GL.BACK);
         GL11.glMatrixMode(GL.PROJECTION);
         GL11.glLoadIdentity();
@@ -92,6 +125,21 @@ export class CrossCraft {
         this.level = new Level(256, 256, 64);
         this.levelRenderer = new LevelRenderer(this.level, this.textures);
         this.player = new Player(this.level);
+        this.particleEngine = new ParticleEngine(this.level);
+        this.t = new Tessellator();
+        this.font = new Font("/default.png", this.textures);
+
+        // this.sleep(1000);
+
+        if (this.loadMapUser == "" || this.loadMapId == -1) {
+            if (this.user != null) {
+                this.levelGen.generateLevel(this.level, this.user.username, 256, 256, 64);
+            } else {
+                this.levelGen.generateLevel(this.level, "noname", 256, 256, 64);
+            }
+        } else {
+            this.loadLevel(this.loadMapUser, this.loadMapId);
+        }
 
         for (var i = 0; i < 20; ++ i) {
             var zombie: Zombie = new Zombie(this.level, 128.0, 0.0, 129.0);
@@ -100,6 +148,95 @@ export class CrossCraft {
         }
 
         this.checkGlError("Post startup");
+    }
+
+    public async loadLevel(username: string, levelId: number): Promise<boolean> {
+        this.isLoading = true;
+        const ok = await this.levelIo.loadOnline(this.level, this.host, username, levelId);
+        if (!ok) {
+            this.isLoading = false;
+            return false;
+        } else {
+            if (this.player != null) {
+                this.player.resetPosition();
+            }
+            if (this.zombies != null) {
+                this.zombies = [];
+            }
+            this.isLoading = false;
+            return true;
+        }
+    }
+
+    public async saveLevel(levelId: number, levelName: string): Promise<void> {
+        this.isLoading = true;
+        const ok = await this.levelIo.saveOnline(this.level, this.host, this.user.username, this.user.sessionid, levelName, levelId);
+        if (!ok) {
+            this.isLoading = false;
+        } else {
+            this.levelLoadUpdate("Level successfuly saved");
+            await this.sleep(1000);
+            this.isLoading = false;
+        }
+        this.isLoading = false;
+    }
+
+    public beginLevelLoading(title: string): void {
+        this.title = title;
+        var screenWidth: number = this.width * 240 / this.height;
+        var screenHeight: number = this.height * 240 / this.height;
+        GL11.glClear(GL.DEPTH_BUFFER_BIT);
+        GL11.glMatrixMode(GL.PROJECTION);
+        GL11.glLoadIdentity();
+        GL11.glOrtho(0.0, screenWidth, screenHeight, 0.0, 100.0, 300.0);
+        GL11.glMatrixMode(GL.MODELVIEW);
+        GL11.glLoadIdentity();
+        GL11.glTranslatef(0.0, 0.0, -200.0);
+    }
+
+    public async levelLoadUpdate(status: string): Promise<void> {
+        console.log("LLU: " + status);
+        var screenWidth: number = this.width * 240 / this.height;
+        var screenHeight: number = this.height * 240 / this.height;
+        GL11.glClear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+        var t: Tessellator = Tessellator.instance;
+        GL11.glEnable(GL.TEXTURE_2D);
+        var id = this.textures.loadTexture("/dirt.png", GL.NEAREST);
+        GL11.glBindTexture(GL.TEXTURE_2D, id);
+        t.begin();
+        t.color(0.5, 0.5, 0.5);
+        var s: number = 32.0;
+        t.vertexUV(0.0, screenHeight, 0.0, 0.0, screenHeight / s);
+        t.vertexUV(screenWidth, screenHeight, 0.0, screenWidth / s, screenHeight / s);
+        t.vertexUV(screenWidth, 0.0, 0.0, screenWidth / s, 0.0);
+        t.vertexUV(0.0, 0.0, 0.0, 0.0, 0.0);
+        t.end();
+        GL11.glEnable(GL.TEXTURE_2D);
+        this.font.drawShadow(this.title, (screenWidth - this.font.width(this.title)) / 2, screenHeight / 2 - 4 - 8, 16777215);
+        this.font.drawShadow(status, (screenWidth - this.font.width(status)) / 2, screenHeight / 2 - 4 + 4, 16777215);
+
+        await this.sleep(100);
+    }
+
+    public async generateNewLevel(width: number, height: number, depth: number): Promise<void> {
+        this.isLoading = true;
+
+        await this.sleep(1); 
+
+        if (this.user != null) {
+            await this.levelGen.generateLevel(this.level, this.user.username, width, height, depth);
+        } else {
+            await this.levelGen.generateLevel(this.level, "noname", width, height, depth);
+        }
+        this.player.resetPosition();
+
+        this.zombies = []
+
+        this.isLoading = false;
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     public stop(): void {
@@ -117,19 +254,87 @@ export class CrossCraft {
         }
     }
 
+    public setScreen(screen: Screen): void {
+        if (this.screen != null) this.screen.onClose();
+        this.screen = screen;
+        if (screen != null) {
+            var screenWidth: number = this.width * 240 / this.height;
+            var screenHeight: number = this.height * 240 / this.height;
+            screen.init(this, screenWidth, screenHeight);
+        }
+    }
+
+    public pauseGame(): void {
+        // Открывать меню паузы, только если мы в игре (нет другого открытого меню)
+        if (this.screen == null) {
+            Mouse.setGrabbed(false);
+            this.player.releaseAllKeys();
+            this.setScreen(new PauseScreen());
+        }
+    }
+
+    /**
+     * Снимает игру с паузы: захватывает курсор и закрывает текущее меню.
+     */
+    public resumeGame(): void {
+        this.setScreen(null as unknown as Screen);
+        Mouse.setGrabbed(true);
+    }
+
+    /**
+     * Переключает состояние между игрой и паузой.
+     */
+    public togglePause(): void {
+        if (this.screen == null) {
+            this.pauseGame();
+        }
+    }
+
     private tick(): void {
-        if (Keyboard.next() && Keyboard.getEventKeyState()) {
-            if (Keyboard.getEventKey() == 33) {
-                this.levelRenderer.toggleDrawDistance();
-            }
-            if (Keyboard.getEventKey() == 34) {
-                console.log("Spawned zombie at player");
-                this.zombies.push(new Zombie(this.level, this.player.x, this.player.y, this.player.z));
+        if (Keyboard.next() && this.screen == null) {
+            this.player.setKey(Keyboard.getEventKey(), Keyboard.getEventKeyState());
+            if (Keyboard.getEventKeyState()) {
+                if (Keyboard.getEventKey() == 1) { // ESC
+                    this.player.releaseAllKeys();
+                    this.togglePause();
+                }
+                if (Keyboard.getEventKey() == 2) { // 1
+                    this.selectedTile = Tile.rock.id;
+                }
+                if (Keyboard.getEventKey() == 3) { // 2
+                    this.selectedTile = Tile.dirt.id;
+                }
+                if (Keyboard.getEventKey() == 4) { // 3
+                    this.selectedTile = Tile.cobblestone.id;
+                }
+                if (Keyboard.getEventKey() == 5) { // 4
+                    this.selectedTile = Tile.wood.id;
+                }
+                if (Keyboard.getEventKey() == 7) { // 6
+                    this.selectedTile = Tile.bush.id;
+                }
+
+                if (Keyboard.getEventKey() == 33) {
+                    this.levelRenderer.toggleDrawDistance();
+                }
+                if (Keyboard.getEventKey() == 34) {
+                    console.log("Spawned zombie at player");
+                    this.zombies.push(new Zombie(this.level, this.player.x, this.player.y, this.player.z));
+                }
             }
         }
 
-        for (var zombie of this.zombies) {
+        this.level.tick();
+        this.particleEngine.tick();
+
+
+        for (let i = this.zombies.length - 1; i >= 0; i--) {
+            const zombie = this.zombies[i];
             zombie.tick();
+
+            if (zombie.removed) {
+                this.zombies.splice(i, 1); 
+            }
         }
 
         this.player.tick();
@@ -152,6 +357,18 @@ export class CrossCraft {
 
         const gameLoop = () => {
             if (!this.running) return;
+
+            if (this.isLoading) {
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            if (this.screen != null) {
+                this.screen.updateEvents();
+                if (this.screen != null) {
+                    this.screen.tick();
+                }
+            }
 
             if (!this.pause) {
                 this.timer.advanceTime();
@@ -223,8 +440,14 @@ export class CrossCraft {
         while(Mouse.next()) {
             // Right click
             if (Mouse.getEventButton() == 2 && Mouse.getEventButtonState() && this.hitResult != null) {
-                // console.log("Right click")
-                this.level.setTile(this.hitResult.x, this.hitResult.y, this.hitResult.z, 0);
+                const previousTile: Tile = Tile.tiles[this.level.getTile(this.hitResult.x, this.hitResult.y, this.hitResult.z)];
+
+                var tileChanged: boolean = this.level.setTile(this.hitResult.x, this.hitResult.y, this.hitResult.z, 0);
+
+                if (previousTile != null && tileChanged) {
+                    // console.log('summon');
+                    previousTile.onDestroy(this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z, this.particleEngine);
+                }
             }
 
             // Left click
@@ -240,7 +463,7 @@ export class CrossCraft {
                 if (this.hitResult.f == 4) x--;
                 if (this.hitResult.f == 5) x++;
 
-                this.level.setTile(x, y, z, 1);
+                this.level.setTile(x, y, z, this.selectedTile);
             }
         }
 
@@ -257,19 +480,41 @@ export class CrossCraft {
         GL11.glEnable(GL.FOG);
         this.levelRenderer.render(this.player, 0);
         for (var zombie of this.zombies) {
-            zombie.render(partialTicks, this.textures);
+            if (zombie.isLit() && frustum.isVisible(zombie.boundingBox)) {
+                zombie.render(partialTicks, this.textures);
+            }
         }
+        this.checkGlError("Rendered entities in layer 0");
+        this.particleEngine.render(this.player, this.t, partialTicks, 0, this.textures);
+        this.checkGlError("Rendered particles in layer 0");
         this.checkGlError("Rendered level");
         this.setupFog(1);
         this.levelRenderer.render(this.player, 1);
+        for (var zombie of this.zombies) {
+            if (!zombie.isLit() && frustum.isVisible(zombie.boundingBox)) {
+                zombie.render(partialTicks, this.textures);
+            }
+        }
+        this.checkGlError("Rendered entities in layer 1");
+        this.particleEngine.render(this.player, this.t, partialTicks, 1, this.textures);
+        this.checkGlError("Rendered particles in layer 1");
+        GL11.glEnable(GL.TEXTURE_2D);
+        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/rock.png", GL.NEAREST));
+        this.levelRenderer.renderSurroundingGround();
+        this.setupFog(0);
+        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/water.png", GL.NEAREST));
+        this.levelRenderer.renderSurroundingWater();
+        GL11.glEnable(GL.BLEND);
+        // GL11.glColorMask();
         GL11.glDisable(GL.LIGHTING);
         GL11.glDisable(GL.TEXTURE_2D);
         GL11.glDisable(GL.FOG);
-        this.setupFog(0);
         if (this.hitResult != null) {
             // GL11.glDepthFunc(GL.LESS);
             GL11.glDisable(GL.ALPHA_TEST);
+            GL11.glAlphaFunc(GL.GREATER, 0.0);
             this.levelRenderer.renderHit(this.player, this.hitResult);
+            GL11.glAlphaFunc(GL.GREATER, 0.5);
             GL11.glEnable(GL.ALPHA_TEST);
             // GL11.glDepthFunc(GL.LEQUAL);
         }
@@ -279,6 +524,8 @@ export class CrossCraft {
     private drawGui(partialTicks: number): void {
         const screenWidth: number = this.width * 240 / this.height;
         const screenHeight: number = this.height * 240 / this.height;
+        var xMouse: number = Mouse.getX() * screenWidth / this.width;
+        var yMouse: number = yMouse = screenHeight - Mouse.getY() * screenHeight / this.height - 1;
         GL11.glClear(GL.DEPTH_BUFFER_BIT);
         GL11.glMatrixMode(GL.PROJECTION);
         GL11.glLoadIdentity()
@@ -299,11 +546,14 @@ export class CrossCraft {
         GL11.glBindTexture(GL.TEXTURE_2D, id);
         GL11.glEnable(GL.TEXTURE_2D);
         t.begin();
-        Tile.rock.render(t, this.level, 0, -2, 0, 0);
+        Tile.tiles[this.selectedTile].render(t, this.level, 0, -2, 0, 0);
         t.end();
         GL11.glDisable(GL.TEXTURE_2D);
         GL11.glPopMatrix();
         this.checkGlError("GUI: Draw selected");
+        this.font.drawShadow(CrossCraft.VERSION_STRING, 2, 2, 16777215);
+        this.font.drawShadow(this.fpsString, 2, 12, 16777215);
+        this.checkGlError("GUI: Draw text");
         var wc: number = screenWidth / 2;
         var hc: number = screenHeight / 2;
         GL11.glColor4f(1.0, 1.0, 1.0, 1.0);
@@ -318,6 +568,9 @@ export class CrossCraft {
         t.vertex((wc + 5), (hc + 1), 0);
         t.end();
         this.checkGlError("GUI: Draw crosshair");
+        if (this.screen != null) {
+            this.screen.render(xMouse, yMouse);
+        }
     }
 
     private setupPickCamera(partialTicks: number, x: number, y: number): void {
@@ -373,6 +626,22 @@ export class CrossCraft {
         GL11.glEnable(GL.COLOR_MATERIAL);
         GL11.glColorMaterial(GL.FRONT, GL.AMBIENT);
         GL11.glEnable(GL.LIGHTING);
+    }
+
+    private getFogDensity(layer: number): number {
+        if (this.levelRenderer.getDrawDistance() == 0) {
+            return  (layer == 0) ? 0.001 : 0.02;
+        }
+        if (this.levelRenderer.getDrawDistance() == 1) {
+            return (layer == 0) ? 0.005 : 0.06;
+        }
+        if (this.levelRenderer.getDrawDistance() == 2) {
+            return (layer == 0) ? 0.05 : 0.1;
+        }
+        if (this.levelRenderer.getDrawDistance() == 3) {
+            return (layer == 0) ? 0.2 : 0.3;
+        }
+        return 0.001
     }
 
     private getBuffer(a: number, b: number, c: number, d: number): FloatBuffer {
