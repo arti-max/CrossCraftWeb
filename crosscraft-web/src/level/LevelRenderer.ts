@@ -106,8 +106,11 @@ export class LevelRenderer implements LevelListener {
     }
 
     public render(player: Player, layer: number): void {
+        GL11.glAlphaFunc(GL.GREATER, 0.5);
         GL11.glEnable(GL.TEXTURE_2D);
         GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/terrain.png", GL.NEAREST));
+        GL11.glEnable(GL.BLEND);
+        GL11.glBlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
 
         const xd = player.x - this.lX;
         const yd = player.y - this.lY;
@@ -133,6 +136,8 @@ export class LevelRenderer implements LevelListener {
         }
 
         GL11.glDisable(GL.TEXTURE_2D);
+        GL11.glDisable(GL.BLEND);
+        GL11.glAlphaFunc(GL.GREATER, 0.0);
     }
 
     public updateDirtyChunks(player: Player): void {
@@ -182,7 +187,11 @@ export class LevelRenderer implements LevelListener {
     }
 
     public renderSurroundingGround(): void {
+        GL11.glEnable(GL.TEXTURE_2D);
+        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/rock2.png", GL.NEAREST));
         GL11.glCallList(this.surroundLists + 0);
+        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/terrain.png", GL.NEAREST));
+        GL11.glDisable(GL.TEXTURE_2D);
     }
 
     public compileSurroundingGround(): void {
@@ -256,7 +265,14 @@ export class LevelRenderer implements LevelListener {
     }
 
     public renderSurroundingWater(): void {
+        GL11.glEnable(GL.BLEND);
+        GL11.glBlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL.TEXTURE_2D);
+        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/water.png", GL.NEAREST));
+        GL11.glColor4f(1.0, 1.0, 1.0, 1.0);
         GL11.glCallList(this.surroundLists + 1);
+        GL11.glDisable(GL.BLEND);
+        GL11.glDisable(GL.TEXTURE_2D);
     }
 
     public compileSurroundingWater(): void {
@@ -345,20 +361,64 @@ export class LevelRenderer implements LevelListener {
         GL11.glPopName();
     }
 
-    public renderHit(player: Player, h: HitResult): void {
+    public renderHit(player: Player, h: HitResult, mode: number, tileType: number): void {
         const t: Tessellator = Tessellator.instance;
         GL11.glEnable(GL.BLEND);
-        // GL11.glEnable(GL.ALPHA_TEST);
+        GL11.glEnable(GL.ALPHA_TEST);
         GL11.glBlendFunc(GL.SRC_ALPHA, 1);
         GL11.glColor4f(1.0, 1.0, 1.0, (Math.sin(performance.now() / 100.0) * 0.2 + 0.4) * 0.5);
+        if (mode == 0) {
+            t.begin();
 
-        t.begin();
-        t.setNoColor();
-        Tile.rock.renderFaceNoTexture(player, t, h.x, h.y, h.z, h.f)
-        t.end();
+            for (var i = 0; i < 6; ++i) {
+                Tile.rock.renderFaceNoTexture(player, t, h.x, h.y, h.z, i);
+            }
+
+            t.end();
+        } else {
+            GL11.glBlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
+            var br: number = Math.sin(performance.now() / 100.0) * 0.2 + 0.8;
+            GL11.glColor4f(br, br, br, Math.sin(performance.now() / 200.0) * 0.2 + 0.5);
+            GL11.glEnable(GL.TEXTURE_2D);
+            var id = this.textures.loadTexture("/terrain.png", GL.NEAREST);
+            GL11.glBindTexture(GL.TEXTURE_2D, id);
+            var x: number = Math.floor(h.x);
+            var y: number = Math.floor(h.y);
+            var z: number = Math.floor(h.z);
+            if (h.f == 0) {
+                --y;
+            }
+
+            if (h.f == 1) {
+                ++y;
+            }
+
+            if (h.f == 2) {
+                --z;
+            }
+
+            if (h.f == 3) {
+                ++z;
+            }
+
+            if (h.f == 4) {
+                --x;
+            }
+
+            if (h.f == 5) {
+                ++x;
+            }
+
+            t.begin();
+            t.setNoColor();
+            Tile.tiles[tileType].render(t, this.level, 0, x, y, z);
+            Tile.tiles[tileType].render(t, this.level, 1, x, y, z);
+            t.end();
+            GL11.glDisable(GL.TEXTURE_2D);
+        }
 
         GL11.glDisable(GL.BLEND);
-        // GL11.glDisable(GL.ALPHA_TEST);
+        GL11.glDisable(GL.ALPHA_TEST);
     }
 
     public toggleDrawDistance(): void {

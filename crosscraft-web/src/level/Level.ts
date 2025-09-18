@@ -20,6 +20,8 @@ export class Level {
 
     private levelListeners: Array<LevelListener> = new Array<LevelListener>();
     private random: Random;
+     private liquidPositions: Set<number> = new Set();
+    private readonly maxBits = 10;
 
     constructor(width: number, height: number, depth: number) {
         this.width = width;
@@ -121,6 +123,8 @@ export class Level {
     }
 
     public tick(): void {
+        this.tickLiquids();
+
         var totalTiles: number = this.width * this.height * this.depth;
 
         var ticks: number = totalTiles / 400;
@@ -130,12 +134,33 @@ export class Level {
             var y = this.random.nextInt(this.depth);
             var z = this.random.nextInt(this.height);
 
-            var tile: Tile = Tile.tiles[this.getTile(x, y, z)];
-            if (tile != null) {
+            var tileId = this.getTile(x, y, z);
+            var tile: Tile = Tile.tiles[tileId];
+            if (tile != null && !this.isActiveLiquidTile(tileId)) {
                 tile.tick(this, x, y, z, this.random);
             }
         }
     }
+
+    private tickLiquids(): void {
+        const positionsToUpdate = Array.from(this.liquidPositions);
+        
+        for (const positionCode of positionsToUpdate) {
+            const [x, y, z] = this.decodePosition(positionCode);
+            const tileId = this.getTile(x, y, z);
+            const tile: Tile = Tile.tiles[tileId];
+            
+            if (tile != null) {
+                if (tile.isCalmLiquid()) {
+                    this.removeLiquidPosition(x, y, z);
+                    continue;
+                }
+                tile.tick(this, x, y, z, this.random);
+            }
+        }
+    }
+
+
 
     private calcLightDepths(minX: number, minZ: number, maxX: number, maxZ: number): void {
         for (var x = minX; x < minX + maxX; x++) {
@@ -244,20 +269,97 @@ export class Level {
         return this.blocks[index];
     }
 
-    public setTile(x: number, y: number, z: number, type: number) {
+    public setTile(x: number, y: number, z: number, type: number): boolean {
+        if (x >= 0 && y >= 0 && z >= 0 && x < this.width && y < this.depth && z < this.height) {
+            const index = (y * this.height + z) * this.width + x;
+            const oldType = this.blocks[index];
+            
+            if (type == oldType) {
+                return false;
+            }
+
+            if (this.isActiveLiquidTile(oldType)) {
+                this.removeLiquidPosition(x, y, z);
+            }
+            if (this.isActiveLiquidTile(type)) {
+                this.addLiquidPosition(x, y, z);
+            }
+
+            this.blocks[index] = type;
+            
+            this.neighborChanged(x - 1, y, z, type);
+            this.neighborChanged(x + 1, y, z, type);
+            this.neighborChanged(x, y - 1, z, type);
+            this.neighborChanged(x, y + 1, z, type);
+            this.neighborChanged(x, y, z - 1, type);
+            this.neighborChanged(x, y, z + 1, type);
+            this.calcLightDepths(x, z, 1, 1);
+            
+            for (var i = 0; i < this.levelListeners.length; ++i) {
+                this.levelListeners[i].tileChanged(x, y, z);
+            }
+            
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    public setTileNoUpdate(x: number, y: number, z: number, type: number): boolean {
         if (x >= 0 && y >= 0 && z >= 0 && x < this.width && y < this.depth && z < this.height) {
             if (type == this.blocks[(y * this.height + z) * this.width + x]) {
                 return false;
             } else {
                 this.blocks[(y * this.height + z) * this.width + x] = type;
-                this.calcLightDepths(x, z, 1, 1);
-                for (var i = 0; i < this.levelListeners.length; ++i) {
-                    this.levelListeners[i].tileChanged(x, y, z);
-                }
                 return true;
             }
         } else {
             return false;
+        }
+    }
+
+    private neighborChanged(x: number, y: number, z: number, type: number): void {
+        if (x >= 0 && y >= 0 && z >= 0 && x < this.width && y < this.depth && z < this.height) {
+            var tile: Tile = Tile.tiles[this.getTile(x, y, z)];
+            if (tile != null) {
+                tile.neighborChanged(this, x, y, z, type);
+            }
+        }
+    }
+
+    private isLiquidTile(tileId: number): boolean {
+        return tileId === Tile.water.id || 
+            tileId === Tile.calmWater.id || 
+            tileId === Tile.lava.id || 
+            tileId === Tile.calmLava.id;
+    }
+
+    private encodePosition(x: number, y: number, z: number): number {
+        return (z << (this.maxBits * 2)) | (y << this.maxBits) | x;
+    }
+
+    private decodePosition(code: number): [number, number, number] {
+        const mask = (1 << this.maxBits) - 1;
+        const x = code & mask;
+        const y = (code >> this.maxBits) & mask;
+        const z = (code >> (this.maxBits * 2)) & mask;
+        return [x, y, z];
+    }
+
+    private isActiveLiquidTile(tileId: number): boolean {
+        // Только активные жидкости, НЕ спокойные (calm)
+        return tileId === Tile.water.id || tileId === Tile.lava.id;
+    }
+
+    public addLiquidPosition(x: number, y: number, z: number): void {
+        if (!this.liquidPositions.has(this.encodePosition(x, y, z))) {
+            this.liquidPositions.add(this.encodePosition(x, y, z));
+        }
+    }
+
+    public removeLiquidPosition(x: number, y: number, z: number): void {
+        if (this.liquidPositions.has(this.encodePosition(x, y, z))) {
+            this.liquidPositions.delete(this.encodePosition(x, y, z));
         }
     }
 
@@ -281,25 +383,23 @@ export class Level {
         var minZ: number = Math.floor(boundingBox.minZ) - 1
         var maxZ: number = Math.ceil(boundingBox.maxZ) + 1
 
-        minX = Math.max(0, minX);
-        minY = Math.max(0, minY);
-        minZ = Math.max(0, minZ);
-
-        maxX = Math.min(this.width, maxX);
-        maxY = Math.min(this.depth, maxY);
-        maxZ = Math.min(this.height, maxZ);
-
         for (var x = minX; x < maxX; ++x) {
             for (var y = minY; y < maxY; ++y) {
                 for (var z = minZ; z < maxZ; ++z) {
+                    if (x >= 0 && y >= 0 && z >= 0 && x < this.width && y < this.depth && z < this.height) {
+                        var tile: Tile = Tile.tiles[this.getTile(x, y, z)];
 
-                    var tile: Tile = Tile.tiles[this.getTile(x, y, z)];
+                        if (tile != null) {
 
-                    if (tile != null) {
-
-                        var aabb: AABB | null = tile.getAABB(x, y, z);
+                            var aabb: AABB | null = tile.getAABB(x, y, z);
+                            if (aabb != null) {
+                                boundingBoxList.push(aabb)
+                            }
+                        }
+                    } else if (x < 0 || y < 0 || z < 0 || x >= this.width || z >= this.height) {
+                        var aabb: AABB | null = Tile.unbreakble.getAABB(x, y, z);
                         if (aabb != null) {
-                            boundingBoxList.push(aabb)
+                            boundingBoxList.push(aabb);
                         }
                     }
                 }

@@ -11,6 +11,7 @@ export class LevelGen {
     private depth: number = 0;
     private random: Random = new Random();
     private blocks: number[] = [];
+    private coords: number[] = new Array(1048576); // Координатный буфер как в Java
 
     constructor(levelLoaderListener: LevelLoaderListener) {
         this.levelLoaderListener = levelLoaderListener;
@@ -31,9 +32,14 @@ export class LevelGen {
         await this.levelLoaderListener.levelLoadUpdate("Eroding...");
         this.buildBlocksFromHeightmap(heightMap);
 
-        this.levelLoaderListener.levelLoadUpdate("Carving...");
+        await this.levelLoaderListener.levelLoadUpdate("Carving...");
         this.carveTunnels();
 
+        await this.levelLoaderListener.levelLoadUpdate("Watering...");
+        this.addWater();
+
+        await this.levelLoaderListener.levelLoadUpdate("Melting...");
+        this.addLava();
 
         level.setData(width, depth, height, this.blocks);
         level.creationTime = BigInt(Date.now());
@@ -132,5 +138,191 @@ export class LevelGen {
                 }
             }
         }
+    }
+
+    /**
+     * Добавляет воду в мир
+     */
+    public addWater(): void {
+        const before = performance.now();
+        let tiles = 0;
+        const source = 0; // Пустое пространство
+        const target = Tile.calmWater.id;
+
+        // Добавляем воду по краям мира на уровне depth/2-1
+        for (let i = 0; i < this.width; ++i) {
+            tiles += this.floodFillLiquid(i, Math.floor(this.depth / 2) - 1, 0, source, target);
+            tiles += this.floodFillLiquid(i, Math.floor(this.depth / 2) - 1, this.height - 1, source, target);
+        }
+
+        for (let i = 0; i < this.height; ++i) {
+            tiles += this.floodFillLiquid(0, Math.floor(this.depth / 2) - 1, i, source, target);
+            tiles += this.floodFillLiquid(this.width - 1, Math.floor(this.depth / 2) - 1, i, source, target);
+        }
+
+        // Добавляем случайные источники воды
+        for (let i = 0; i < Math.floor(this.width * this.height / 5000); ++i) {
+            const x = this.random.nextInt(this.width);
+            const y = Math.floor(this.depth / 2) - 1;
+            const z = this.random.nextInt(this.height);
+            const index = (y * this.height + z) * this.width + x;
+            if (this.blocks[index] === 0) {
+                tiles += this.floodFillLiquid(x, y, z, 0, target);
+            }
+        }
+
+        const after = performance.now();
+        console.log(`Flood filled ${tiles} tiles in ${after - before} ms`);
+    }
+
+    /**
+     * Добавляет лаву в мир
+     */
+    public addLava(): void {
+        let lavaCount = 0;
+
+        for (let i = 0; i < Math.floor(this.width * this.height * this.depth / 10000); ++i) {
+            const x = this.random.nextInt(this.width);
+            const y = this.random.nextInt(Math.floor(this.depth / 2)); // Лава только в нижней половине
+            const z = this.random.nextInt(this.height);
+            const index = (y * this.height + z) * this.width + x;
+            
+            if (this.blocks[index] === 0) {
+                ++lavaCount;
+                this.floodFillLiquid(x, y, z, 0, Tile.calmLava.id);
+            }
+        }
+
+        console.log(`LavaCount: ${lavaCount}`);
+    }
+
+    /**
+     * Заливает жидкость от заданной точки
+     */
+    public floodFillLiquid(x: number, y: number, z: number, source: number, target: number): number {
+        const coordBuffer: number[][] = [];
+        let p = 0;
+        
+        // Упрощенная система координат (без битовых операций как в Java)
+        let tiles = 0;
+        const upStep = this.width * this.height;
+        
+        // Добавляем начальную координату
+        this.coords[p++] = this.getCoordIndex(x, y, z);
+
+        while (p > 0) {
+            --p;
+            const cl = this.coords[p];
+            
+            // Распаковываем координаты
+            const coords = this.unpackCoord(cl);
+            var x0 = coords[0];
+            var y0 = coords[1];
+            var z0 = coords[2];
+
+            // Если буфер переполнен, создаем новый
+            if (p === 0 && coordBuffer.length > 0) {
+                this.coords = coordBuffer.pop()!;
+                p = this.coords.length;
+            }
+
+            // Ищем горизонтальную линию пустых блоков
+            let x1 = x0;
+            let currentIndex = (y0 * this.height + z0) * this.width + x0;
+            
+            // Идем влево
+            while (x0 > 0 && this.blocks[currentIndex - 1] === source) {
+                currentIndex--;
+                x0--;
+            }
+
+            // Идем вправо
+            while (x1 < this.width && this.blocks[currentIndex + (x1 - x0)] === source) {
+                x1++;
+            }
+
+            // Заливаем линию и проверяем соседей
+            let lastNorth = false;
+            let lastSouth = false; 
+            let lastBelow = false;
+            
+            tiles += (x1 - x0);
+
+            for (let xx = x0; xx < x1; ++xx) {
+                this.blocks[currentIndex] = target;
+
+                // Проверяем север (z-1)
+                if (z0 > 0) {
+                    const north = this.blocks[currentIndex - this.width] === source;
+                    if (north && !lastNorth) {
+                        if (p === this.coords.length) {
+                            coordBuffer.push(this.coords);
+                            this.coords = new Array(1048576);
+                            p = 0;
+                        }
+                        this.coords[p++] = this.getCoordIndex(xx, y0, z0 - 1);
+                    }
+                    lastNorth = north;
+                }
+
+                // Проверяем юг (z+1)
+                if (z0 < this.height - 1) {
+                    const south = this.blocks[currentIndex + this.width] === source;
+                    if (south && !lastSouth) {
+                        if (p === this.coords.length) {
+                            coordBuffer.push(this.coords);
+                            this.coords = new Array(1048576);
+                            p = 0;
+                        }
+                        this.coords[p++] = this.getCoordIndex(xx, y0, z0 + 1);
+                    }
+                    lastSouth = south;
+                }
+
+                // Проверяем низ (y-1)
+                if (y0 > 0) {
+                    const belowId = this.blocks[currentIndex - upStep];
+                    
+                    // Лава превращает воду в камень
+                    if ((target === Tile.lava.id || target === Tile.calmLava.id) && 
+                        (belowId === Tile.water.id || belowId === Tile.calmWater.id)) {
+                        this.blocks[currentIndex - upStep] = Tile.rock.id;
+                    }
+
+                    const below = belowId === source;
+                    if (below && !lastBelow) {
+                        if (p === this.coords.length) {
+                            coordBuffer.push(this.coords);
+                            this.coords = new Array(1048576);
+                            p = 0;
+                        }
+                        this.coords[p++] = this.getCoordIndex(xx, y0 - 1, z0);
+                    }
+                    lastBelow = below;
+                }
+
+                currentIndex++;
+            }
+        }
+
+        return tiles;
+    }
+
+    /**
+     * Упаковывает координаты в одно число
+     */
+    private getCoordIndex(x: number, y: number, z: number): number {
+        return (y * this.height + z) * this.width + x;
+    }
+
+    /**
+     * Распаковывает координаты из числа
+     */
+    private unpackCoord(index: number): [number, number, number] {
+        const x = index % this.width;
+        const temp = Math.floor(index / this.width);
+        const z = temp % this.height;
+        const y = Math.floor(temp / this.height);
+        return [x, y, z];
     }
 }

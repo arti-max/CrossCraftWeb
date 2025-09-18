@@ -16,6 +16,11 @@ export class Tile {
     public static cobblestone: Tile;
     public static wood: Tile;
     public static bush: Tile;
+    public static unbreakble: Tile;
+    public static water: Tile;
+    public static calmWater: Tile;
+    public static lava: Tile;
+    public static calmLava: Tile;
 
     public textureId!: number;
     public readonly id: number;
@@ -36,7 +41,7 @@ export class Tile {
         }
     }
 
-    private shouldRenderFace(level: Level, x: number, y: number, z: number, layer: number, face: number): boolean {
+    protected shouldRenderFace(level: Level, x: number, y: number, z: number, layer: number, face: number): boolean {
         var layerOk: boolean = true;
         if (layer == 2) {
             return false;
@@ -56,7 +61,7 @@ export class Tile {
         return this.textureId;
     }
 
-    private setShape(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void {
+    protected setShape(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): void {
         this.minX = x0;
         this.maxX = x1;
         this.minY = y0;
@@ -103,17 +108,25 @@ export class Tile {
 
     public renderFace(t: Tessellator, x: number, y: number, z: number, face: number): void {
         const tex: number = this.getTexture(face);
-        var u0: number = tex / 16.0;
-        var u1: number = u0 + 16 / 256.0;
-        var v0: number = 0.0;
-        var v1: number = v0 + 16 / 256.0;
 
-        var x0: number = (x + 0);
-        var x1: number = (x + 1);
-        var y0: number = (y + 0);
-        var y1: number = (y + 1);
-        var z0: number = (z + 0);
-        var z1: number = (z + 1);
+        const atlasSize = 16;
+        const tilePixels = 16;
+        const atlasPixels = 256;
+        
+        const col = tex % atlasSize;
+        const row = Math.floor(tex / atlasSize);
+        
+        const u0 = col * tilePixels / atlasPixels;
+        const u1 = u0 + tilePixels / atlasPixels;
+        const v0 = row * tilePixels / atlasPixels;
+        const v1 = v0 + tilePixels / atlasPixels;
+
+        var x0: number = (x + this.minX);
+        var x1: number = (x + this.maxX);
+        var y0: number = (y + this.minY);
+        var y1: number = (y + this.maxY);
+        var z0: number = (z + this.minZ);
+        var z1: number = (z + this.maxZ);
         if (face == 0) {
             t.vertexUV(x0, y0, z1, u0, v1);
             t.vertexUV(x0, y0, z0, u0, v0);
@@ -144,6 +157,61 @@ export class Tile {
             t.vertexUV(x1, y0, z0, u1, v1);
             t.vertexUV(x1, y1, z0, u1, v0);
             t.vertexUV(x1, y1, z1, u0, v0);
+        }
+    }
+
+    public renderBackFace(t: Tessellator, x: number, y: number, z: number, face: number): void {
+        const tex: number = this.getTexture(face);
+
+        const atlasSize = 16;
+        const tilePixels = 16;
+        const atlasPixels = 256;
+        
+        const col = tex % atlasSize;
+        const row = Math.floor(tex / atlasSize);
+        
+        const u0 = col * tilePixels / atlasPixels;
+        const u1 = u0 + tilePixels / atlasPixels;
+        const v0 = row * tilePixels / atlasPixels;
+        const v1 = v0 + tilePixels / atlasPixels;
+
+        var x0: number = (x + this.minX);
+        var x1: number = (x + this.maxX);
+        var y0: number = (y + this.minY);
+        var y1: number = (y + this.maxY);
+        var z0: number = (z + this.minZ);
+        var z1: number = (z + this.maxZ);
+        
+        if (face == 0) {
+            t.vertexUV(x1, y0, z1, u1, v1);
+            t.vertexUV(x1, y0, z0, u1, v0);
+            t.vertexUV(x0, y0, z0, u0, v0);
+            t.vertexUV(x0, y0, z1, u0, v1);
+        } else if (face == 1) {
+            t.vertexUV(x0, y1, z1, u0, v1);
+            t.vertexUV(x0, y1, z0, u0, v0);
+            t.vertexUV(x1, y1, z0, u1, v0);
+            t.vertexUV(x1, y1, z1, u1, v1);
+        } else if (face == 2) {
+            t.vertexUV(x0, y0, z0, u1, v1);
+            t.vertexUV(x1, y0, z0, u0, v1);
+            t.vertexUV(x1, y1, z0, u0, v0);
+            t.vertexUV(x0, y1, z0, u1, v0);
+        } else if (face == 3) {
+            t.vertexUV(x1, y1, z1, u1, v0);
+            t.vertexUV(x1, y0, z1, u1, v1);
+            t.vertexUV(x0, y0, z1, u0, v1);
+            t.vertexUV(x0, y1, z1, u0, v0);
+        } else if (face == 4) {
+            t.vertexUV(x0, y0, z1, u1, v1);
+            t.vertexUV(x0, y0, z0, u0, v1);
+            t.vertexUV(x0, y1, z0, u0, v0);
+            t.vertexUV(x0, y1, z1, u1, v0);
+        } else if (face == 5) {
+            t.vertexUV(x1, y1, z1, u0, v0);
+            t.vertexUV(x1, y1, z0, u1, v0);
+            t.vertexUV(x1, y0, z0, u1, v1);
+            t.vertexUV(x1, y0, z1, u0, v1);
         }
     }
 
@@ -251,4 +319,16 @@ export class Tile {
     public getAABB(x: number, y: number, z: number): AABB | null {
         return new AABB(x, y, z, x+1, y+1, z+1);
     }
+
+    public neighborChanged(level: Level, x: number, y: number, z: number, type: number): void {
+        // No implementation
+    }
+
+    public getLiquidType(): number {
+        return 0;
+    }
+
+    public isCalmLiquid(): boolean {
+      return false;
+   }
 }

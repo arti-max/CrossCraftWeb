@@ -24,10 +24,12 @@ import { PauseScreen } from "./gui/PauseScreen";
 import { LevelIO } from "./level/LevelIO";
 import type { LevelLoaderListener } from "./level/LevelLoaderListener";
 import { LevelGen } from "./level/levelgen/LevelGen";
+import { AABB } from './phys/AABB';
 
+const APP_DEBUG = false;
 
 export class CrossCraft implements LevelLoaderListener {
-    public static readonly VERSION_STRING: string = "0.0.2a_03";
+    public static readonly VERSION_STRING: string = "0.0.3a";
     public readonly host: string = "crosscraftweb.ddns.net";
     public width: number;
     public height: number;
@@ -64,6 +66,7 @@ export class CrossCraft implements LevelLoaderListener {
     public isLoading: boolean = false;
     public loadMapUser: string = "";
     public loadMapId: number = -1;
+    private lastMousePos = {x: 0, y: 0};
 
     constructor(parent: HTMLCanvasElement, width: number, height: number, fullscrean: boolean) {
         this.parent = parent;
@@ -111,7 +114,7 @@ export class CrossCraft implements LevelLoaderListener {
         GL11.glEnable(GL.DEPTH_TEST);
         GL11.glDepthFunc(GL.LEQUAL);
         GL11.glEnable(GL.ALPHA_TEST);
-        GL11.glAlphaFunc(GL.GREATER, 0.5);
+        GL11.glAlphaFunc(GL.GREATER, 0.0);
         GL11.glCullFace(GL.BACK);
         GL11.glMatrixMode(GL.PROJECTION);
         GL11.glLoadIdentity();
@@ -244,6 +247,7 @@ export class CrossCraft implements LevelLoaderListener {
     }
     
     private checkGlError(string: string): void {
+        if (!APP_DEBUG) return;
         var errorCode: number = GL11.glGetError();
         if (errorCode != 0) {
             var errorString: string = GLU.gluErrorString(errorCode);
@@ -290,6 +294,49 @@ export class CrossCraft implements LevelLoaderListener {
         }
     }
 
+    private isFree(aabb: AABB): boolean {
+        if (this.player.boundingBox.intersects(aabb)) {
+            return false;
+        } else {
+            for (var i = 0; i < this.zombies.length; ++i) {
+                if (this.zombies[i].boundingBox.intersects(aabb)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    private handleMouseClick() {
+        if (this.editMode == 0 && this.hitResult != null) {
+            const previousTile: Tile = Tile.tiles[this.level.getTile(this.hitResult.x, this.hitResult.y, this.hitResult.z)];
+
+            var tileChanged: boolean = this.level.setTile(this.hitResult.x, this.hitResult.y, this.hitResult.z, 0);
+
+            if (previousTile != null && tileChanged) {
+                // console.log('summon');
+                previousTile.onDestroy(this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z, this.particleEngine);
+            }
+        } else if (this.hitResult != null) {
+            var x: number = Math.floor(this.hitResult.x);
+            var y: number = Math.floor(this.hitResult.y);
+            var z: number = Math.floor(this.hitResult.z);
+
+            if (this.hitResult.f == 0) y--;
+            if (this.hitResult.f == 1) y++;
+            if (this.hitResult.f == 2) z--;
+            if (this.hitResult.f == 3) z++;
+            if (this.hitResult.f == 4) x--;
+            if (this.hitResult.f == 5) x++;
+
+            const aabb: AABB | null = Tile.tiles[this.selectedTile].getAABB(x, y, z);
+            if (aabb == null || this.isFree(aabb)) {
+                this.level.setTile(x, y, z, this.selectedTile);
+            }
+        }
+    }
+
     private tick(): void {
         if (Keyboard.next() && this.screen == null) {
             this.player.setKey(Keyboard.getEventKey(), Keyboard.getEventKeyState());
@@ -312,6 +359,12 @@ export class CrossCraft implements LevelLoaderListener {
                 }
                 if (Keyboard.getEventKey() == 7) { // 6
                     this.selectedTile = Tile.bush.id;
+                }
+                if (Keyboard.getEventKey() == 8) { // 7
+                    this.selectedTile = Tile.water.id;
+                }
+                if (Keyboard.getEventKey() == 9) { // 8
+                    this.selectedTile = Tile.lava.id;
                 }
 
                 if (Keyboard.getEventKey() == 33) {
@@ -381,7 +434,6 @@ export class CrossCraft implements LevelLoaderListener {
 
             if (performance.now() >= lastTime + 1000) {
                 this.fpsString = `${frames} fps, ${Chunk.updates} chunk updates`;
-                console.log(this.fpsString);
                 Chunk.updates = 0;
                 lastTime += 1000;
                 frames = 0;
@@ -436,38 +488,16 @@ export class CrossCraft implements LevelLoaderListener {
         this.checkGlError("Set viewport");
         this.pick(partialTicks);
         this.checkGlError("Picked");
-
-        while(Mouse.next()) {
-            // Right click
-            if (Mouse.getEventButton() == 2 && Mouse.getEventButtonState() && this.hitResult != null) {
-                const previousTile: Tile = Tile.tiles[this.level.getTile(this.hitResult.x, this.hitResult.y, this.hitResult.z)];
-
-                var tileChanged: boolean = this.level.setTile(this.hitResult.x, this.hitResult.y, this.hitResult.z, 0);
-
-                if (previousTile != null && tileChanged) {
-                    // console.log('summon');
-                    previousTile.onDestroy(this.level, this.hitResult.x, this.hitResult.y, this.hitResult.z, this.particleEngine);
-                }
+        while (Mouse.next()) {
+            if (Mouse.getEventButton() == 0 && Mouse.getEventButtonState()) {
+                this.handleMouseClick();
             }
-
-            // Left click
-            if (Mouse.getEventButton() == 0 && Mouse.getEventButtonState() && this.hitResult != null) {
-                var x: number = Math.floor(this.hitResult.x);
-                var y: number = Math.floor(this.hitResult.y);
-                var z: number = Math.floor(this.hitResult.z);
-
-                if (this.hitResult.f == 0) y--;
-                if (this.hitResult.f == 1) y++;
-                if (this.hitResult.f == 2) z--;
-                if (this.hitResult.f == 3) z++;
-                if (this.hitResult.f == 4) x--;
-                if (this.hitResult.f == 5) x++;
-
-                this.level.setTile(x, y, z, this.selectedTile);
+            if (Mouse.getEventButton() == 2 && Mouse.getEventButtonState()) {
+                this.editMode = (this.editMode + 1) % 2
             }
         }
-
         GL11.glClear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+        GL11.glAlphaFunc(GL.GREATER, 0.0);
         this.setupCamera(partialTicks);
         GL11.glEnable(GL.CULL_FACE);
         this.checkGlError("Set up camera");
@@ -479,6 +509,7 @@ export class CrossCraft implements LevelLoaderListener {
         this.setupFog(0);
         GL11.glEnable(GL.FOG);
         this.levelRenderer.render(this.player, 0);
+        this.checkGlError("Rendered level");
         for (var zombie of this.zombies) {
             if (zombie.isLit() && frustum.isVisible(zombie.boundingBox)) {
                 zombie.render(partialTicks, this.textures);
@@ -487,7 +518,6 @@ export class CrossCraft implements LevelLoaderListener {
         this.checkGlError("Rendered entities in layer 0");
         this.particleEngine.render(this.player, this.t, partialTicks, 0, this.textures);
         this.checkGlError("Rendered particles in layer 0");
-        this.checkGlError("Rendered level");
         this.setupFog(1);
         this.levelRenderer.render(this.player, 1);
         for (var zombie of this.zombies) {
@@ -498,26 +528,34 @@ export class CrossCraft implements LevelLoaderListener {
         this.checkGlError("Rendered entities in layer 1");
         this.particleEngine.render(this.player, this.t, partialTicks, 1, this.textures);
         this.checkGlError("Rendered particles in layer 1");
-        GL11.glEnable(GL.TEXTURE_2D);
-        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/rock.png", GL.NEAREST));
         this.levelRenderer.renderSurroundingGround();
+        if (this.hitResult != null) {
+            GL11.glDisable(GL.LIGHTING);
+            GL11.glDisable(GL.ALPHA_TEST);
+            this.levelRenderer.renderHit(this.player, this.hitResult, this.editMode, this.selectedTile);
+            GL11.glEnable(GL.ALPHA_TEST);
+            GL11.glEnable(GL.LIGHTING);
+        }
+        GL11.glBlendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA);
         this.setupFog(0);
-        GL11.glBindTexture(GL.TEXTURE_2D, this.textures.loadTexture("/water.png", GL.NEAREST));
         this.levelRenderer.renderSurroundingWater();
         GL11.glEnable(GL.BLEND);
-        // GL11.glColorMask();
+        GL11.glColorMask(false, false, false, false);
+        this.levelRenderer.render(this.player, 2);
+        GL11.glColorMask(true, true, true, true);
+        this.levelRenderer.render(this.player, 2);
+        GL11.glDisable(GL.BLEND);
         GL11.glDisable(GL.LIGHTING);
         GL11.glDisable(GL.TEXTURE_2D);
         GL11.glDisable(GL.FOG);
         if (this.hitResult != null) {
-            // GL11.glDepthFunc(GL.LESS);
+            GL11.glDepthFunc(GL.LESS);
             GL11.glDisable(GL.ALPHA_TEST);
-            GL11.glAlphaFunc(GL.GREATER, 0.0);
-            this.levelRenderer.renderHit(this.player, this.hitResult);
-            GL11.glAlphaFunc(GL.GREATER, 0.5);
+            this.levelRenderer.renderHit(this.player, this.hitResult, this.editMode, this.selectedTile);
             GL11.glEnable(GL.ALPHA_TEST);
-            // GL11.glDepthFunc(GL.LEQUAL);
+            GL11.glDepthFunc(GL.LEQUAL);
         }
+        GL11.glAlphaFunc(GL.GREATER, 0.5);
         this.drawGui(partialTicks);
     }
 
@@ -610,7 +648,18 @@ export class CrossCraft implements LevelLoaderListener {
     }
 
     private setupFog(layer: number): void {
-        if (layer == 0) {
+        var currentTile: Tile = Tile.tiles[this.level.getTile(Math.floor(this.player.x), Math.floor(this.player.y + 0.12), Math.floor(this.player.z))]
+        if (currentTile != null && currentTile.getLiquidType() == 1) {
+            GL11.glFogi(GL.FOG_MODE, GL.EXP);
+            GL11.glFogf(GL.FOG_DENSITY, 0.1);
+            GL11.glFog(GL.FOG_COLOR, this.getBuffer(0.02, 0.02, 0.2, 1.0));
+            GL11.glLightModel(GL.LIGHT_MODEL_AMBIENT, this.getBuffer(0.3, 0.3, 0.7, 1.0));
+        } else if (currentTile != null && currentTile.getLiquidType() == 2) {
+            GL11.glFogi(GL.FOG_MODE, GL.EXP);
+            GL11.glFogf(GL.FOG_DENSITY, 2.0);
+            GL11.glFog(GL.FOG_COLOR, this.getBuffer(0.6, 0.1, 0.0, 1.0));
+            GL11.glLightModel(GL.LIGHT_MODEL_AMBIENT, this.getBuffer(0.4, 0.3, 0.3, 1.0))
+        } else if (layer == 0) {
             GL11.glFogi(GL.FOG_MODE, GL.EXP);
             GL11.glFogf(GL.FOG_DENSITY, 0.001); 
             GL11.glFog(GL.FOG_COLOR, this.fogColor0);

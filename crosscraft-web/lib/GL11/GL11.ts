@@ -53,9 +53,11 @@ const fsSource = `
 
     uniform sampler2D uSampler;
     uniform bool uUseTexture;
+    uniform bool uAlphaTestEnabled;
     uniform float uAlphaTestValue;
     
     // Параметры тумана
+    uniform bool uLightingEnabled;
     uniform bool uFogEnabled;
     uniform int uFogMode;
     uniform float uFogDensity;
@@ -75,14 +77,15 @@ const fsSource = `
             finalColor *= texture2D(uSampler, vTextureCoord);
         }
 
-        // 2. Alpha test
-        if (finalColor.a < uAlphaTestValue) {
+        // 2. Alpha test (только если включен)
+        if (uAlphaTestEnabled && finalColor.a < uAlphaTestValue) {
             discard;
         }
 
-        // 3. Применяем ambient освещение ТОЛЬКО к RGB каналам
-        // НЕ трогаем alpha канал!
-        finalColor.rgb *= uLightModelAmbient.rgb;
+        // 3. Применяем ambient освещение ТОЛЬКО к RGB каналам (только если включено)
+        if (uLightingEnabled) {
+            finalColor.rgb *= uLightModelAmbient.rgb;
+        }
 
         // 4. Применяем туман последним этапом
         if (uFogEnabled) {
@@ -98,7 +101,6 @@ const fsSource = `
             }
             
             fogFactor = clamp(fogFactor, 0.0, 1.0);
-            
             finalColor.rgb = mix(uFogColor, finalColor.rgb, fogFactor);
         }
 
@@ -220,10 +222,11 @@ export const GL = {
     SPECULAR: 4610,
     EMISSION: 5632,
     CURRENT_BIT: 0x00040000,
+    COLOR_WRITEMASK: 3379,
 };
 
 class GL11 {
-    private gl: WebGLRenderingContext;
+    private gl: WebGL2RenderingContext;
     private mainShaderProgram: WebGLProgram;
     private mainProgramInfo: { attribs: any; uniforms: any; };
     private pickingShaderProgram: WebGLProgram;
@@ -261,6 +264,12 @@ class GL11 {
         stride: 0
     };
 
+    private alphaTestState = {
+        enabled: false,
+        func: GL.GREATER,
+        ref: 0.0
+    };
+
     // Данные для компиляции текущего списка
     private compilingList: {
         geometries: Array<{
@@ -295,6 +304,7 @@ class GL11 {
     };
 
     private lightingState = {
+        enabled: false,
         ambient: [0.2, 0.2, 0.2, 1.0] as [number, number, number, number],
         localViewer: false,
         twoSided: false
@@ -335,7 +345,7 @@ class GL11 {
 ]);
 
     constructor(canvas: HTMLCanvasElement) {
-        const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true, alpha: false,premultipliedAlpha: false});
+        const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true, alpha: false,premultipliedAlpha: false});
         if (!gl) throw new Error("WebGL not supported.");
         this.gl = gl;
         this.mainShaderProgram = this.createProgram(vsSource, fsSource);
@@ -559,7 +569,7 @@ class GL11 {
             'glEnable', 'glDisable', 'glBindTexture', 'glTexParameteri',
             'glBlendFunc', 'glDepthFunc', 'glCullFace', 'glAlphaFunc',
             'glColorMaterial', 'glFogi', 'glFogf', 'glFogfv', 'glFog',
-            'glLightModel', 'glLightModelfv'
+            'glLightModel', 'glLightModelfv', 'glColorMask',
         ]);
         return stateCommands.has(func);
     }
@@ -745,6 +755,13 @@ class GL11 {
         this.gl.uniformMatrix4fv(uniforms.projectionMatrix, false, this.projectionMatrixStack.current);
         this.gl.uniformMatrix4fv(uniforms.modelViewMatrix, false, this.modelViewMatrixStack.current);
         
+        // Alpha Test
+        this.gl.uniform1i(uniforms.uAlphaTestEnabled, this.alphaTestState.enabled ? 1 : 0);
+        this.gl.uniform1f(uniforms.uAlphaTestValue, this.alphaTestState.ref);
+        
+        // Lighting
+        this.gl.uniform1i(uniforms.uLightingEnabled, this.lightingState.enabled ? 1 : 0);
+        
         // Туман
         this.gl.uniform1i(uniforms.uFogEnabled, this.fogState.enabled ? 1 : 0);
         this.gl.uniform1i(uniforms.uFogMode, this.fogState.mode);
@@ -754,10 +771,10 @@ class GL11 {
         this.gl.uniform3f(uniforms.uFogColor, this.fogState.color[0], this.fogState.color[1], this.fogState.color[2]);
         
         // Освещение
-        this.gl.uniform4f(uniforms.uLightModelAmbient, 
-            this.lightingState.ambient[0], 
-            this.lightingState.ambient[1], 
-            this.lightingState.ambient[2], 
+        this.gl.uniform4f(uniforms.uLightModelAmbient,
+            this.lightingState.ambient[0],
+            this.lightingState.ambient[1],
+            this.lightingState.ambient[2],
             this.lightingState.ambient[3]);
         
         // Цветной материал
@@ -830,8 +847,13 @@ class GL11 {
                 this.colorMaterialState.enabled = true;
                 return;
             case GL.ALPHA_TEST:
+                // Теперь обрабатываем ALPHA_TEST
+                this.alphaTestState.enabled = true;
+                return;
             case GL.LIGHTING:
-                return; // Игнорируем
+                // Теперь обрабатываем LIGHTING
+                this.lightingState.enabled = true;
+                return;
             case GL.TEXTURE_2D:
                 this.textureEnabled = true;
                 return;
@@ -850,8 +872,13 @@ class GL11 {
                 this.colorMaterialState.enabled = false;
                 return;
             case GL.ALPHA_TEST:
+                // Теперь обрабатываем ALPHA_TEST
+                this.alphaTestState.enabled = false;
+                return;
             case GL.LIGHTING:
-                return; // Игнорируем
+                // Теперь обрабатываем LIGHTING
+                this.lightingState.enabled = false;
+                return;
             case GL.TEXTURE_2D:
                 this.textureEnabled = false;
                 return;
@@ -872,7 +899,7 @@ class GL11 {
                 modelViewMatrix: gl.getUniformLocation(p, 'uModelViewMatrix')!,
             }
         };
-        
+
         if (isPicking) {
             i.uniforms.uPickingColor = gl.getUniformLocation(p, 'uPickingColor')!;
         } else {
@@ -880,7 +907,13 @@ class GL11 {
             i.attribs.textureCoord = gl.getAttribLocation(p, 'aTextureCoord');
             i.uniforms.uSampler = gl.getUniformLocation(p, 'uSampler')!;
             i.uniforms.uUseTexture = gl.getUniformLocation(p, 'uUseTexture')!;
+            
+            // Alpha Test uniforms
+            i.uniforms.uAlphaTestEnabled = gl.getUniformLocation(p, 'uAlphaTestEnabled')!;
             i.uniforms.uAlphaTestValue = gl.getUniformLocation(p, 'uAlphaTestValue')!;
+            
+            // Lighting uniform
+            i.uniforms.uLightingEnabled = gl.getUniformLocation(p, 'uLightingEnabled')!;
             
             // Униформы тумана
             i.uniforms.uFogEnabled = gl.getUniformLocation(p, 'uFogEnabled')!;
@@ -892,10 +925,9 @@ class GL11 {
             
             // Униформы освещения
             i.uniforms.uLightModelAmbient = gl.getUniformLocation(p, 'uLightModelAmbient')!;
-            
-            // Униформы для цветного материала
             i.uniforms.uColorMaterialEnabled = gl.getUniformLocation(p, 'uColorMaterialEnabled')!;
         }
+        
         return i;
     }
 
@@ -941,7 +973,14 @@ class GL11 {
         this.gl.uniformMatrix4fv(uniforms.modelViewMatrix, false, this.modelViewMatrixStack.current);
         
         if (!isPicking) {
-            // Туман
+            // Alpha Test
+            this.gl.uniform1i(uniforms.uAlphaTestEnabled, this.alphaTestState.enabled ? 1 : 0);
+            this.gl.uniform1f(uniforms.uAlphaTestValue, this.alphaTestState.ref);
+            
+            // Lighting
+            this.gl.uniform1i(uniforms.uLightingEnabled, this.lightingState.enabled ? 1 : 0);
+            
+            // Остальные uniforms...
             this.gl.uniform1i(uniforms.uFogEnabled, this.fogState.enabled ? 1 : 0);
             this.gl.uniform1i(uniforms.uFogMode, this.fogState.mode);
             this.gl.uniform1f(uniforms.uFogDensity, this.fogState.density);
@@ -949,18 +988,13 @@ class GL11 {
             this.gl.uniform1f(uniforms.uFogEnd, this.fogState.end);
             this.gl.uniform3f(uniforms.uFogColor, this.fogState.color[0], this.fogState.color[1], this.fogState.color[2]);
             
-            // Освещение
-            this.gl.uniform4f(uniforms.uLightModelAmbient, 
-                this.lightingState.ambient[0], 
-                this.lightingState.ambient[1], 
-                this.lightingState.ambient[2], 
+            this.gl.uniform4f(uniforms.uLightModelAmbient,
+                this.lightingState.ambient[0],
+                this.lightingState.ambient[1],
+                this.lightingState.ambient[2],
                 this.lightingState.ambient[3]);
             
-            // Цветной материал
             this.gl.uniform1i(uniforms.uColorMaterialEnabled, this.colorMaterialState.enabled ? 1 : 0);
-            
-            // ОТЛАДКА:
-            // console.log(`🔧 Uniforms: fog=${this.fogState.enabled}, density=${this.fogState.density}, color=[${this.fogState.color.join(',')}]`);
         }
     }
     private updatePickingColor(id: number): void {
@@ -1089,7 +1123,18 @@ class GL11 {
     public glVertex3f(x: number, y: number, z: number): void { if(this.recordCommand('glVertex3f', [x,y,z])) return; this.immediate.vertexData.push(x,y,z,...this.immediate.currentColor,...this.immediate.currentTexCoord); this.immediate.vertexCount++; }
     public glVertex2f(x: number, y: number): void { if(this.recordCommand('glVertex2f', [x,y])) return; this.glVertex3f(x, y, 0.0); }
     public glEnd(): void { if (this.recordCommand('glEnd', [])) return; if (this.immediate.vertexCount === 0) return; let data=this.immediate.vertexData; let mode=this.immediate.mode; const stride=3+4+2; if(mode===GL.QUADS){const qd=[]; for(let i=0;i<this.immediate.vertexCount/4;i++){const v0=data.slice(i*4*stride,(i*4+1)*stride); const v1=data.slice((i*4+1)*stride,(i*4+2)*stride); const v2=data.slice((i*4+2)*stride,(i*4+3)*stride); const v3=data.slice((i*4+3)*stride,(i*4+4)*stride); qd.push(...v0,...v1,...v2); qd.push(...v0,...v2,...v3);} data=qd; mode=GL.TRIANGLES;} const gl=this.gl; gl.bindBuffer(gl.ARRAY_BUFFER,this.immediate.vbo); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW); const byteStride=stride*4; const isPicking=this.renderMode===GL.SELECT; this.updateMatrices(); const attribs=isPicking?this.pickingProgramInfo.attribs:this.mainProgramInfo.attribs; gl.vertexAttribPointer(attribs.vertexPosition,3,gl.FLOAT,false,byteStride,0); gl.enableVertexAttribArray(attribs.vertexPosition); if(!isPicking){gl.vertexAttribPointer(this.mainProgramInfo.attribs.vertexColor,4,gl.FLOAT,false,byteStride,3*4); gl.enableVertexAttribArray(this.mainProgramInfo.attribs.vertexColor); gl.vertexAttribPointer(this.mainProgramInfo.attribs.textureCoord,2,gl.FLOAT,false,byteStride,(3+4)*4); gl.enableVertexAttribArray(this.mainProgramInfo.attribs.textureCoord); gl.uniform1i(this.mainProgramInfo.uniforms.uUseTexture, this.textureEnabled&&this.immediate.hasTexture?1:0);} gl.drawArrays(mode,0,data.length/stride); gl.disableVertexAttribArray(attribs.vertexPosition); if(!isPicking){gl.disableVertexAttribArray(this.mainProgramInfo.attribs.vertexColor); gl.disableVertexAttribArray(this.mainProgramInfo.attribs.textureCoord);} }
-    public glAlphaFunc(func: number, ref: number): void { if(this.recordCommand('glAlphaFunc', [func,ref])) return; this.stateCache.alphaTestFunc=func; this.stateCache.alphaTestRef=ref; if(func!==GL.GREATER)console.warn("glAlphaFunc only supports GL_GREATER."); this.gl.uniform1f(this.mainProgramInfo.uniforms.uAlphaTestValue,ref); }
+    public glAlphaFunc(func: number, ref: number): void {
+        if (this.recordCommand('glAlphaFunc', [func, ref])) return;
+        
+        this.alphaTestState.func = func;
+        this.alphaTestState.ref = ref;
+        
+        if (func !== GL.GREATER) {
+            console.warn('glAlphaFunc: Only GL.GREATER is fully supported. Other modes may not work correctly.');
+        }
+        
+        this.gl.uniform1f(this.mainProgramInfo.uniforms.uAlphaTestValue, ref);
+    }
     public glTexParameteri(target: number, pname: number, param: number): void { if(this.recordCommand('glTexParameteri', [target,pname,param])) return; this.gl.texParameteri(target,pname,param); }
     public glShadeModel(mode: number): void { if(this.recordCommand('glShadeModel', [mode])) return; console.warn("glShadeModel is ignored in this WebGL implementation."); }
     public glCullFace(mode: number): void { if(this.recordCommand('glCullFace', [mode])) return; this.gl.cullFace(mode); }
@@ -1279,6 +1324,11 @@ class GL11 {
             case GL.AMBIENT_AND_DIFFUSE: return "AMBIENT_AND_DIFFUSE";
             default: return `UNKNOWN(${mode})`;
         }
+    }
+
+    public glColorMask(red: boolean, green: boolean, blue: boolean, alpha: boolean): void {
+        if (this.recordCommand('glColorMask', [red, green, blue, alpha])) return;
+        this.gl.colorMask(red, green, blue, alpha);
     }
 }
 

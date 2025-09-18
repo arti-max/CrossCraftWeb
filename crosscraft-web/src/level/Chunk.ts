@@ -48,7 +48,7 @@ export class Chunk {
         this.y = (minY + maxY) / 2.0;
         this.z = (minZ + maxZ) / 2.0;
 
-        this.lists = GL11.glGenLists(2);
+        this.lists = GL11.glGenLists(3);
 
         this.boundingBox = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
         
@@ -81,6 +81,7 @@ export class Chunk {
         Chunk.updates++;
         this.rebuildLayer(0);
         this.rebuildLayer(1);
+        this.rebuildLayer(2);
         this.dirty = false;
     }
 
@@ -106,7 +107,7 @@ export class Chunk {
     public reset(): void {
         this.dirty = true;
 
-        for (var i = 0; i < 2; ++i) {
+        for (var i = 0; i < 3; ++i) {
             GL11.glNewList(this.lists + i, GL.COMPILE);
             GL11.glEndList();
         }

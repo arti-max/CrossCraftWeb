@@ -35,7 +35,7 @@ export class Zombie extends Entity {
         var vertical: number = Math.sin(this.rotation);
         var forward: number = Math.cos(this.rotation);
 
-        if (this.onGround && Math.random() < 0.08) {
+        if (this.onGround && Math.random() < 0.02) {
             this.motionY = 0.5;
         }
 
